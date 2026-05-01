@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>知行录 - 单股深度分析</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;700&family=Noto+Sans+SC:wght@300;400;500&family=IBM+Plex+Mono:wght@400&display=swap');
+
+:root {
+  --bg: #FAF7F2;
+  --text-primary: #2A2A2A;
+  --text-secondary: #6B6B6B;
+  --accent-green: #2C3E2D;
+  --accent-gold: #C9A961;
+  --border: #E5E0D8;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  background: var(--bg);
+  font-family: 'Noto Sans SC', -apple-system, sans-serif;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.hero {
+  text-align: center;
+  padding: 0 24px;
+  max-width: 600px;
+  width: 100%;
+}
+
+.brand {
+  font-family: 'Noto Serif SC', serif;
+  font-size: 36px;
+  font-weight: 700;
+  color: var(--accent-green);
+  margin-bottom: 12px;
+}
+
+.tagline {
+  font-size: 15px;
+  color: var(--text-secondary);
+  margin-bottom: 48px;
+  line-height: 1.6;
+}
+</style>
+</head>
+<body>
+<div class="hero">
+  <h1 class="brand">知行录</h1>
+  <p class="tagline">记录投资的知与行</p>
+<!-- SEARCH_SECTION_PLACEHOLDER -->
+  <div class="search-box">
+    <input type="text" id="search-input" placeholder="输入一个股票代码，看看不一样的分析" autocomplete="off">
+    <div id="suggestions" class="suggestions"></div>
+  </div>
+  <p class="hint">支持6位股票代码（如600519）或股票名称（如贵州茅台）</p>
+  <div id="loading" class="loading" style="display:none;">
+    <p>AI正在认真分析，大约需要20-30秒</p>
+    <div class="loading-bar"><div class="loading-progress"></div></div>
+  </div>
+</div>
+
+<style>
+.search-box {
+  position: relative;
+  width: 100%;
+  margin-bottom: 16px;
+}
+
+#search-input {
+  width: 100%;
+  padding: 16px 20px;
+  font-size: 16px;
+  font-family: 'Noto Sans SC', sans-serif;
+  border: 2px solid var(--border);
+  border-radius: 12px;
+  background: #fff;
+  color: var(--text-primary);
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+#search-input:focus {
+  border-color: var(--accent-gold);
+}
+
+#search-input::placeholder {
+  color: #B0A89C;
+}
+
+.suggestions {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: #fff;
+  border-radius: 0 0 12px 12px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+  z-index: 10;
+  display: none;
+}
+
+.suggestions.active { display: block; }
+
+.suggestion-item {
+  padding: 12px 20px;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  transition: background 0.15s;
+}
+
+.suggestion-item:hover { background: #F5F0E8; }
+
+.suggestion-item .name { font-weight: 500; }
+.suggestion-item .code {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.hint {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-top: 8px;
+}
+
+.loading {
+  margin-top: 32px;
+}
+
+.loading p {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin-bottom: 12px;
+}
+
+.loading-bar {
+  width: 200px;
+  height: 3px;
+  background: var(--border);
+  border-radius: 2px;
+  margin: 0 auto;
+  overflow: hidden;
+}
+
+.loading-progress {
+  width: 30%;
+  height: 100%;
+  background: var(--accent-gold);
+  border-radius: 2px;
+  animation: progress 2s ease-in-out infinite;
+}
+
+@keyframes progress {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(400%); }
+}
+</style>
+
+<script>
+const input = document.getElementById('search-input');
+const suggestions = document.getElementById('suggestions');
+const loading = document.getElementById('loading');
+let debounceTimer;
+
+input.addEventListener('input', function() {
+  clearTimeout(debounceTimer);
+  const q = this.value.trim();
+  if (!q) { suggestions.classList.remove('active'); return; }
+  debounceTimer = setTimeout(() => fetchSuggestions(q), 200);
+});
+
+input.addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') {
+    const q = this.value.trim();
+    if (q) startAnalysis(q);
+  }
+});
+
+async function fetchSuggestions(q) {
+  const resp = await fetch('/api/search?q=' + encodeURIComponent(q));
+  const data = await resp.json();
+  if (!data.length) { suggestions.classList.remove('active'); return; }
+  suggestions.innerHTML = data.map(s =>
+    `<div class="suggestion-item" onclick="startAnalysis('${s.code}')">
+      <span class="name">${s.name}</span><span class="code">${s.code}</span>
+    </div>`
+  ).join('');
+  suggestions.classList.add('active');
+}
+
+function startAnalysis(symbol) {
+  suggestions.classList.remove('active');
+  loading.style.display = 'block';
+  window.location.href = '/api/report/' + symbol;
+}
+
+document.addEventListener('click', function(e) {
+  if (!e.target.closest('.search-box')) suggestions.classList.remove('active');
+});
+</script>
+</body>
+</html>
