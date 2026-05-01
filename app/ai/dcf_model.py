@@ -1,24 +1,59 @@
-import pandas as pd
-
-
 def calculate_dcf(
     free_cash_flows: list[float],
     revenue_growth_rates: list[float],
     current_price: float,
     total_shares: float,
+    net_debt: float = 0.0,
     wacc: float = 0.10,
     terminal_growth: float = 0.025,
 ) -> dict:
     """
-    基于自由现金流折现模型计算内在价值。
-    返回乐观/中性/悲观三档估值结果，包含详细计算步骤。
+    DCF两阶段折现模型。
+
+    参数:
+      free_cash_flows: 历史自由现金流列表（单位：元），按时间正序排列
+      revenue_growth_rates: 历史营收增长率列表（小数形式，如0.15表示15%）
+      current_price: 当前股价
+      total_shares: 总股本（股）
+      net_debt: 净负债（有息负债 - 现金及等价物），正值表示净负债，负值表示净现金
+      wacc: 加权平均资本成本
+      terminal_growth: 永续增长率
     """
     if not free_cash_flows or total_shares <= 0:
         return {"error": "数据不足，无法计算DCF"}
 
-    latest_fcf = free_cash_flows[-1]
-    avg_growth = sum(revenue_growth_rates) / len(revenue_growth_rates) if revenue_growth_rates else 0.05
+    if wacc <= terminal_growth:
+        return {"error": "WACC必须大于永续增长率"}
 
+    positive_fcfs = [f for f in free_cash_flows if f > 0]
+    if not positive_fcfs:
+        return {"error": "历史自由现金流均为负，DCF模型不适用"}
+
+    if len(free_cash_flows) >= 3:
+        recent = free_cash_flows[-3:]
+        weights = [0.2, 0.3, 0.5]
+        base_fcf = sum(f * w for f, w in zip(recent, weights))
+    else:
+        base_fcf = free_cash_flows[-1]
+
+    if base_fcf <= 0:
+        base_fcf = sum(positive_fcfs) / len(positive_fcfs)
+
+    if revenue_growth_rates:
+        valid_rates = [r for r in revenue_growth_rates if -0.5 < r < 1.0]
+        if valid_rates:
+            if len(valid_rates) >= 3:
+                weights_g = list(range(1, len(valid_rates) + 1))
+                total_w = sum(weights_g)
+                avg_growth = sum(r * w for r, w in zip(valid_rates, weights_g)) / total_w
+            else:
+                avg_growth = sum(valid_rates) / len(valid_rates)
+        else:
+            avg_growth = 0.05
+    else:
+        avg_growth = 0.05
+
+    projection_years = 5
     scenarios = {
         "乐观": avg_growth * 1.3,
         "中性": avg_growth,
@@ -31,8 +66,8 @@ def calculate_dcf(
         projected_fcfs = []
         discount_factors = []
         present_values = []
-        fcf = latest_fcf
-        for year in range(1, 6):
+        fcf = base_fcf
+        for year in range(1, projection_years + 1):
             fcf = fcf * (1 + growth)
             discount = (1 + wacc) ** year
             pv = fcf / discount
@@ -41,10 +76,11 @@ def calculate_dcf(
             present_values.append(round(pv, 2))
 
         terminal_value = (fcf * (1 + terminal_growth)) / (wacc - terminal_growth)
-        terminal_pv = terminal_value / ((1 + wacc) ** 5)
+        terminal_pv = terminal_value / ((1 + wacc) ** projection_years)
 
         enterprise_value = sum(present_values) + terminal_pv
-        per_share = enterprise_value / total_shares
+        equity_value = enterprise_value - net_debt
+        per_share = equity_value / total_shares
 
         deviation = (per_share - current_price) / current_price * 100 if current_price > 0 else 0
 
@@ -58,6 +94,7 @@ def calculate_dcf(
             "terminal_value": round(terminal_value, 2),
             "terminal_pv": round(terminal_pv, 2),
             "enterprise_value": round(enterprise_value, 2),
+            "equity_value": round(equity_value, 2),
         }
 
     mid = results["中性"]
@@ -66,9 +103,10 @@ def calculate_dcf(
     results["当前股价"] = current_price
     results["WACC"] = f"{wacc*100:.1f}%"
     results["永续增长率"] = f"{terminal_growth*100:.1f}%"
-    results["latest_fcf"] = latest_fcf
+    results["base_fcf"] = base_fcf
     results["avg_growth"] = avg_growth
     results["total_shares"] = total_shares
+    results["net_debt"] = net_debt
     results["wacc_raw"] = wacc
     results["terminal_growth_raw"] = terminal_growth
 

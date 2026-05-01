@@ -236,17 +236,38 @@ def _build_dcf_section(data: dict, quote: dict) -> str:
     if current_price <= 0 or total_shares <= 0:
         return '<div class="disclaimer">DCF估值：缺少股价或股本数据，无法计算。</div>'
 
-    fcf_list = []
+    operating_cf = []
+    capex_list = []
     if cashflow is not None and not cashflow.empty:
         for col in cashflow.columns:
             if "经营活动产生的现金流量净额" in str(col):
-                vals = cashflow[col].dropna().head(5).tolist()
-                for v in vals:
+                for v in cashflow[col].dropna().tolist():
                     try:
-                        fcf_list.append(float(v))
+                        operating_cf.append(float(v))
                     except (ValueError, TypeError):
                         continue
                 break
+        for col in cashflow.columns:
+            col_str = str(col)
+            if "购建固定资产" in col_str or "购买固定资产" in col_str:
+                for v in cashflow[col].dropna().tolist():
+                    try:
+                        capex_list.append(abs(float(v)))
+                    except (ValueError, TypeError):
+                        continue
+                break
+
+    fcf_list = []
+    if operating_cf:
+        if capex_list and len(capex_list) == len(operating_cf):
+            fcf_list = [ocf - cap for ocf, cap in zip(operating_cf, capex_list)]
+        else:
+            fcf_list = operating_cf
+
+    if fcf_list and len(fcf_list) > 5:
+        fcf_list = fcf_list[-5:]
+    elif fcf_list:
+        fcf_list = fcf_list[-len(fcf_list):]
 
     growth_list = []
     if fs is not None and not fs.empty and "营业总收入同比增长率" in fs.columns:
@@ -255,10 +276,12 @@ def _build_dcf_section(data: dict, quote: dict) -> str:
             if n is not None:
                 growth_list.append(n / 100)
 
+    net_debt = 0.0
+
     if not fcf_list:
         return '<div class="disclaimer">DCF估值：缺少现金流数据，无法计算。</div>'
 
-    dcf = calculate_dcf(fcf_list, growth_list, current_price, total_shares)
+    dcf = calculate_dcf(fcf_list, growth_list, current_price, total_shares, net_debt=net_debt)
     if "error" in dcf:
         return f'<div class="disclaimer">{dcf["error"]}</div>'
 
@@ -272,10 +295,11 @@ def _build_dcf_section(data: dict, quote: dict) -> str:
         detail_rows += f'<td id="dcf-df-{i}"></td><td id="dcf-pv-{i}"></td></tr>'
 
     dcf_params = json.dumps({
-        "latest_fcf": dcf["latest_fcf"],
+        "base_fcf": dcf["base_fcf"],
         "avg_growth": dcf["avg_growth"],
         "current_price": current_price,
         "total_shares": total_shares,
+        "net_debt": dcf.get("net_debt", 0),
         "wacc": dcf["wacc_raw"],
         "terminal_growth": dcf["terminal_growth_raw"],
     }, ensure_ascii=False)
@@ -337,7 +361,7 @@ def _build_dcf_section(data: dict, quote: dict) -> str:
       var gr=g*mults[label];
       gr=Math.max(Math.min(gr,0.30),-0.10);
       var fcfs=[],dfs=[],pvs=[];
-      var fcf=P.latest_fcf;
+      var fcf=P.base_fcf;
       for(var y=1;y<=5;y++){{
         fcf=fcf*(1+gr);
         var df=Math.pow(1+wacc,y);
@@ -346,9 +370,10 @@ def _build_dcf_section(data: dict, quote: dict) -> str:
       var tv=(fcf*(1+tg))/(wacc-tg);
       var tvpv=tv/Math.pow(1+wacc,5);
       var ev=pvs.reduce(function(a,b){{return a+b}},0)+tvpv;
-      var ps=ev/P.total_shares;
+      var eqv=ev-(P.net_debt||0);
+      var ps=eqv/P.total_shares;
       var dev=(ps-P.current_price)/P.current_price*100;
-      scenarios[label]={{ps:ps,dev:dev,gr:gr*100,fcfs:fcfs,dfs:dfs,pvs:pvs,tv:tv,tvpv:tvpv,ev:ev}};
+      scenarios[label]={{ps:ps,dev:dev,gr:gr*100,fcfs:fcfs,dfs:dfs,pvs:pvs,tv:tv,tvpv:tvpv,ev:ev,eqv:eqv}};
     }}
     return scenarios;
   }}
