@@ -9,11 +9,13 @@ from app.data.financial_data import (
 )
 from app.data.market_data import get_stock_kline, get_realtime_quote
 from app.data.valuation_data import get_valuation_history
-from app.data.news_data import get_stock_news, get_research_reports, get_stock_announcements
-from app.ai.llm_client import chat
+from app.data.news_data import get_stock_news, get_research_reports, get_stock_announcements, get_profit_forecast
+from app.ai.llm_client import chat, chat_with_search
 from app.ai.prompts import (
     module1_prompt, module2_prompt, module3_indicator_prompt,
-    module4_prompt, module5_prompt, module6_prompt, module8_prompt,
+    module4_prompt, module5_research_prompt, module5_prompt,
+    module5_forecast_prompt,
+    module6_prompt, module8_prompt,
     module_trade_ref_prompt,
 )
 from app.ai.dcf_model import calculate_dcf
@@ -48,13 +50,14 @@ async def generate_report(symbol: str) -> AsyncGenerator[str, None]:
     yield await _generate_module2(stock_name, data)
     yield await _generate_module3(stock_name, data)
     yield await _generate_module4(stock_name, data)
-    yield await _generate_module5(stock_name, data)
-    yield await _generate_module6(stock_name, data)
-    yield _generate_module7(stock_name, stock_code, data)
-    yield await _generate_module_trade_ref(stock_name, data)
+    yield await _generate_module5_research(stock_name, data)
+    yield await _generate_module6_divergence(stock_name, data)
+    yield await _generate_module7_price(stock_name, data)
+    yield _generate_module8_reports(stock_name, stock_code, data)
+    yield await _generate_module9_trade_ref(stock_name, data)
 
     context = f"{stock_name}，最新财务数据：{_brief_financials(data)}"
-    yield await _generate_module9_questions(stock_name, context)
+    yield await _generate_module10_questions(stock_name, context)
 
     yield report_html_footer()
 
@@ -71,6 +74,7 @@ async def _fetch_all_data(symbol: str) -> dict:
         "reports": asyncio.to_thread(get_research_reports, symbol),
         "announcements": asyncio.to_thread(get_stock_announcements, symbol),
         "quote": asyncio.to_thread(get_realtime_quote, symbol),
+        "profit_forecast": asyncio.to_thread(get_profit_forecast, symbol),
     }
 
     data = {}
@@ -160,6 +164,16 @@ async def _generate_module3(stock_name: str, data: dict) -> str:
             trend_chart = line_chart("fin-health-chart", "财务健康趋势（近20期）", x_labels, chart_series)
             content_parts.append(trend_chart)
 
+        abs_series = []
+        for col, display_name in [("营业总收入", "营业总收入(亿元)"), ("净利润", "净利润(亿元)")]:
+            if col in recent_20.columns:
+                vals = recent_20[col].apply(_parse_number).tolist()
+                if any(v is not None for v in vals):
+                    abs_series.append({"name": display_name, "data": vals})
+        if abs_series:
+            abs_chart = line_chart("fin-abs-chart", "季度营收与净利润（近20期，亿元）", x_labels, abs_series)
+            content_parts.insert(0, abs_chart)
+
         for col, display_name in metrics:
             if col not in fs.columns:
                 continue
@@ -204,6 +218,12 @@ def _parse_number(val):
         s = s.replace("亿", "")
         try:
             return round(float(s), 2)
+        except ValueError:
+            return None
+    if "万" in s:
+        s = s.replace("万", "")
+        try:
+            return round(float(s) / 10000, 4)
         except ValueError:
             return None
     try:
@@ -290,13 +310,15 @@ def _build_dcf_section(data: dict, quote: dict) -> str:
     pes = dcf["悲观"]
 
     detail_rows = ""
-    for i in range(5):
-        detail_rows += f'<tr><td>第{i+1}年</td><td id="dcf-fcf-{i}"></td>'
+    for i in range(10):
+        stage = "I" if i < 5 else "II"
+        detail_rows += f'<tr><td>第{i+1}年<sup style="color:var(--text-secondary);font-size:10px;">{stage}</sup></td><td id="dcf-fcf-{i}"></td>'
         detail_rows += f'<td id="dcf-df-{i}"></td><td id="dcf-pv-{i}"></td></tr>'
 
     dcf_params = json.dumps({
         "base_fcf": dcf["base_fcf"],
-        "avg_growth": dcf["avg_growth"],
+        "growth_1_5": dcf["growth_1_5"],
+        "growth_6_10": dcf["growth_6_10"],
         "current_price": current_price,
         "total_shares": total_shares,
         "net_debt": dcf.get("net_debt", 0),
@@ -305,11 +327,12 @@ def _build_dcf_section(data: dict, quote: dict) -> str:
     }, ensure_ascii=False)
 
     return f'''<div class="indicator-card">
-  <h3 style="font-family:var(--font-serif);margin-bottom:12px;">DCF估值分析</h3>
+  <h3 style="font-family:var(--font-serif);margin-bottom:12px;">DCF估值分析（10年两阶段）</h3>
   <div id="dcf-summary">
-    <p>中性假设下内在价值：<strong id="dcf-mid-value">¥{mid["内在价值"]}/股</strong>（增速假设 <span id="dcf-mid-growth">{mid["增速假设"]}%</span>）</p>
+    <p>中性假设下内在价值：<strong id="dcf-mid-value">¥{mid["内在价值"]}/股</strong>（第1-5年 <span id="dcf-mid-growth">{mid["增速假设_1_5"]}%</span> / 第6-10年 <span id="dcf-mid-growth2">{mid["增速假设_6_10"]}%</span>）</p>
     <p>当前股价：¥{current_price}/股，<strong id="dcf-judgment" class="{"up" if mid["偏离度"] > 0 else "down"}">当前{dcf["判断"]}约 {dcf["判断幅度"]}%</strong></p>
     <p style="font-size:14px;color:var(--text-secondary);" id="dcf-scenarios">乐观：¥{opt["内在价值"]}（{opt["偏离度"]:+.1f}%） | 悲观：¥{pes["内在价值"]}（{pes["偏离度"]:+.1f}%）</p>
+    <p style="font-size:13px;color:var(--text-secondary);">敏感性区间：¥{dcf["sensitivity_low"]} ~ ¥{dcf["sensitivity_high"]}</p>
   </div>
 
   <div id="dcf-gauge-container" style="width:100%;height:280px;margin:20px 0;"></div>
@@ -327,9 +350,14 @@ def _build_dcf_section(data: dict, quote: dict) -> str:
       <span id="dcf-tg-val">{dcf["terminal_growth_raw"]*100:.1f}%</span>
     </div>
     <div class="dcf-control-row">
-      <label>增速调整系数</label>
-      <input type="range" id="dcf-growth-adj" min="50" max="150" step="5" value="100">
-      <span id="dcf-growth-adj-val">100%</span>
+      <label>第1-5年增速</label>
+      <input type="range" id="dcf-g1" min="-5" max="30" step="0.5" value="{dcf["growth_1_5"]*100:.1f}">
+      <span id="dcf-g1-val">{dcf["growth_1_5"]*100:.1f}%</span>
+    </div>
+    <div class="dcf-control-row">
+      <label>第6-10年增速</label>
+      <input type="range" id="dcf-g2" min="-5" max="20" step="0.5" value="{dcf["growth_6_10"]*100:.1f}">
+      <span id="dcf-g2-val">{dcf["growth_6_10"]*100:.1f}%</span>
     </div>
   </div>
 
@@ -353,27 +381,31 @@ def _build_dcf_section(data: dict, quote: dict) -> str:
   function fmt(n){{ return (n/1e8).toFixed(2)+'亿'; }}
   function fmtS(n){{ return n.toFixed(2); }}
 
-  function calcDCF(wacc,tg,growthAdj){{
-    var g=P.avg_growth*growthAdj;
+  function calcDCF(wacc,tg,g1,g2){{
     var scenarios={{}};
     var mults={{'乐观':1.3,'中性':1.0,'悲观':0.6}};
     for(var label in mults){{
-      var gr=g*mults[label];
-      gr=Math.max(Math.min(gr,0.30),-0.10);
+      var sg1=g1*mults[label];
+      var sg2=g2*mults[label];
+      sg1=Math.max(Math.min(sg1,0.30),-0.10);
+      sg2=Math.max(Math.min(sg2,0.20),-0.05);
       var fcfs=[],dfs=[],pvs=[];
       var fcf=P.base_fcf;
-      for(var y=1;y<=5;y++){{
-        fcf=fcf*(1+gr);
+      var totalPv=0;
+      for(var y=1;y<=10;y++){{
+        if(y<=5){{ fcf=fcf*(1+sg1); }}
+        else{{ fcf=fcf*(1+sg2); }}
         var df=Math.pow(1+wacc,y);
         fcfs.push(fcf);dfs.push(df);pvs.push(fcf/df);
+        totalPv+=fcf/df;
       }}
       var tv=(fcf*(1+tg))/(wacc-tg);
-      var tvpv=tv/Math.pow(1+wacc,5);
-      var ev=pvs.reduce(function(a,b){{return a+b}},0)+tvpv;
+      var tvpv=tv/Math.pow(1+wacc,10);
+      var ev=totalPv+tvpv;
       var eqv=ev-(P.net_debt||0);
       var ps=eqv/P.total_shares;
       var dev=(ps-P.current_price)/P.current_price*100;
-      scenarios[label]={{ps:ps,dev:dev,gr:gr*100,fcfs:fcfs,dfs:dfs,pvs:pvs,tv:tv,tvpv:tvpv,ev:ev,eqv:eqv}};
+      scenarios[label]={{ps:ps,dev:dev,g1:sg1*100,g2:sg2*100,fcfs:fcfs,dfs:dfs,pvs:pvs,tv:tv,tvpv:tvpv,ev:ev,eqv:eqv}};
     }}
     return scenarios;
   }}
@@ -381,25 +413,28 @@ def _build_dcf_section(data: dict, quote: dict) -> str:
   function updateUI(){{
     var wacc=parseFloat(document.getElementById('dcf-wacc').value)/100;
     var tg=parseFloat(document.getElementById('dcf-tg').value)/100;
-    var adj=parseFloat(document.getElementById('dcf-growth-adj').value)/100;
+    var g1=parseFloat(document.getElementById('dcf-g1').value)/100;
+    var g2=parseFloat(document.getElementById('dcf-g2').value)/100;
     document.getElementById('dcf-wacc-val').textContent=((wacc*100).toFixed(1))+'%';
     document.getElementById('dcf-tg-val').textContent=((tg*100).toFixed(1))+'%';
-    document.getElementById('dcf-growth-adj-val').textContent=(Math.round(adj*100))+'%';
+    document.getElementById('dcf-g1-val').textContent=((g1*100).toFixed(1))+'%';
+    document.getElementById('dcf-g2-val').textContent=((g2*100).toFixed(1))+'%';
 
     if(wacc<=tg){{document.getElementById('dcf-summary').innerHTML='<p style="color:#D97757;">WACC必须大于永续增长率</p>';return;}}
 
-    var s=calcDCF(wacc,tg,adj);
+    var s=calcDCF(wacc,tg,g1,g2);
     var mid=s['中性'],opt=s['乐观'],pes=s['悲观'];
 
     document.getElementById('dcf-mid-value').textContent='¥'+fmtS(mid.ps)+'/股';
-    document.getElementById('dcf-mid-growth').textContent=mid.gr.toFixed(1)+'%';
+    document.getElementById('dcf-mid-growth').textContent=mid.g1.toFixed(1)+'%';
+    document.getElementById('dcf-mid-growth2').textContent=mid.g2.toFixed(1)+'%';
     var j=mid.dev>0?'被低估':'被高估';
     var jEl=document.getElementById('dcf-judgment');
     jEl.textContent='当前'+j+'约 '+Math.abs(mid.dev).toFixed(1)+'%';
     jEl.className=mid.dev>0?'up':'down';
     document.getElementById('dcf-scenarios').textContent='乐观：¥'+fmtS(opt.ps)+'（'+(opt.dev>0?'+':'')+opt.dev.toFixed(1)+'%） | 悲观：¥'+fmtS(pes.ps)+'（'+(pes.dev>0?'+':'')+pes.dev.toFixed(1)+'%）';
 
-    for(var i=0;i<5;i++){{
+    for(var i=0;i<10;i++){{
       document.getElementById('dcf-fcf-'+i).textContent=fmt(mid.fcfs[i]);
       document.getElementById('dcf-df-'+i).textContent=mid.dfs[i].toFixed(4);
       document.getElementById('dcf-pv-'+i).textContent=fmt(mid.pvs[i]);
@@ -414,7 +449,8 @@ def _build_dcf_section(data: dict, quote: dict) -> str:
         pointer:{{show:true,length:'60%',width:4,itemStyle:{{color:'#C9A961'}}}},
         axisLine:{{lineStyle:{{width:20,color:[[0.3,'#7A9B6E'],[0.7,'#E8A87C'],[1,'#D97757']]}}}},
         axisTick:{{show:false}},splitLine:{{show:false}},
-        axisLabel:{{fontSize:11,distance:25}},
+        splitNumber:4,
+        axisLabel:{{fontSize:11,distance:30}},
         detail:{{formatter:'{{value}}\\n当前股价 ¥'+P.current_price,fontSize:16,offsetCenter:[0,'40%'],color:'#2A2A2A'}},
         data:[{{value:P.current_price.toFixed(2)}}]
       }}]
@@ -423,7 +459,8 @@ def _build_dcf_section(data: dict, quote: dict) -> str:
 
   document.getElementById('dcf-wacc').addEventListener('input',updateUI);
   document.getElementById('dcf-tg').addEventListener('input',updateUI);
-  document.getElementById('dcf-growth-adj').addEventListener('input',updateUI);
+  document.getElementById('dcf-g1').addEventListener('input',updateUI);
+  document.getElementById('dcf-g2').addEventListener('input',updateUI);
   updateUI();
   window.addEventListener('resize',function(){{gaugeChart.resize()}});
 }})();
@@ -480,7 +517,125 @@ async def _generate_module4(stock_name: str, data: dict) -> str:
     return module_html(4, "\n".join(content_parts) if content_parts else "<p>估值数据暂不可用。</p>")
 
 
-async def _generate_module5(stock_name: str, data: dict) -> str:
+async def _generate_module5_research(stock_name: str, data: dict) -> str:
+    reports = data.get("reports")
+
+    rows = []
+    if reports is not None and not reports.empty:
+        for _, row in reports.head(3).iterrows():
+            title = str(row.get("报告名称", row.iloc[0] if len(row) > 0 else "未知标题"))
+            org = str(row.get("机构", ""))
+            date = str(row.get("日期", ""))
+            link = str(row.get("报告PDF链接", ""))
+            rating = str(row.get("东财评级", ""))
+
+            try:
+                summary = await asyncio.to_thread(
+                    chat, module5_research_prompt(stock_name, title, org, date, rating)
+                )
+            except Exception:
+                summary = "摘要生成失败。"
+
+            link_html = f' · <a href="{link}" target="_blank" style="color:var(--accent-gold);">查看原文</a>' if link and link != "nan" else ""
+            rows.append(f'''<div class="indicator-card">
+  <div class="indicator-header">
+    <span class="indicator-name" style="font-size:14px;">{title}</span>
+    <span class="data-label">{date}</span>
+  </div>
+  <p class="data-label">机构：{org}{f" · 评级：{rating}" if rating and rating != "nan" else ""}{link_html}</p>
+  <div class="insight">{summary}</div>
+</div>''')
+
+    forecast_html = await _build_forecast_section(stock_name, data)
+    content = "\n".join(rows) + forecast_html
+    return module_html(5, content)
+
+
+async def _build_forecast_section(stock_name: str, data: dict) -> str:
+    forecast = data.get("profit_forecast")
+    if not forecast:
+        return ""
+
+    eps_df = forecast.get("eps")
+    profit_df = forecast.get("net_profit")
+    ratings = forecast.get("ratings") or {}
+
+    has_eps = eps_df is not None and not eps_df.empty
+    has_profit = profit_df is not None and not profit_df.empty
+    has_ratings = bool(ratings)
+
+    if not has_eps and not has_profit and not has_ratings:
+        return ""
+
+    parts = ['<h3 style="font-family:var(--font-serif);margin:32px 0 16px;color:var(--accent-green);">分析师盈利预测</h3>']
+
+    if has_ratings:
+        buy = int(ratings.get("机构投资评级(近六个月)-买入", 0) or 0)
+        overweight = int(ratings.get("机构投资评级(近六个月)-增持", 0) or 0)
+        neutral = int(ratings.get("机构投资评级(近六个月)-中性", 0) or 0)
+        reduce_r = int(ratings.get("机构投资评级(近六个月)-减持", 0) or 0)
+        sell = int(ratings.get("机构投资评级(近六个月)-卖出", 0) or 0)
+        report_count = ratings.get("研报数", 0)
+        parts.append(f'''<div class="indicator-card">
+  <div class="indicator-header">
+    <span class="indicator-name">机构评级分布（近六个月）</span>
+    <span class="data-label">{report_count}篇研报</span>
+  </div>
+  <p><span class="data-value" style="font-size:18px;">买入 {buy}</span> · 增持 {overweight} · 中性 {neutral} · 减持 {reduce_r} · 卖出 {sell}</p>
+</div>''')
+
+    if has_eps:
+        table_rows = ""
+        for _, row in eps_df.iterrows():
+            table_rows += f'<tr><td>{row["年度"]}</td><td>{row["预测机构数"]}</td><td>{row["最小值"]}</td><td>{row["均值"]}</td><td>{row["最大值"]}</td></tr>'
+        parts.append(f'''<div class="indicator-card">
+  <div class="indicator-header"><span class="indicator-name">每股收益预测（元）</span></div>
+  <table class="fin-table">
+  <thead><tr><th>年度</th><th>预测机构数</th><th>最小值</th><th>均值</th><th>最大值</th></tr></thead>
+  <tbody>{table_rows}</tbody>
+  </table>
+</div>''')
+
+        years = eps_df["年度"].astype(str).tolist()
+        chart_series = [
+            {"name": "最高预测", "data": [float(v) for v in eps_df["最大值"].tolist()]},
+            {"name": "平均预测", "data": [float(v) for v in eps_df["均值"].tolist()]},
+            {"name": "最低预测", "data": [float(v) for v in eps_df["最小值"].tolist()]},
+        ]
+        parts.append(line_chart("forecast-eps-chart", "每股收益预测趋势（元）", years, chart_series))
+
+    if has_profit:
+        table_rows = ""
+        for _, row in profit_df.iterrows():
+            table_rows += f'<tr><td>{row["年度"]}</td><td>{row["预测机构数"]}</td><td>{row["最小值"]:.2f}亿</td><td>{row["均值"]:.2f}亿</td><td>{row["最大值"]:.2f}亿</td></tr>'
+        parts.append(f'''<div class="indicator-card">
+  <div class="indicator-header"><span class="indicator-name">净利润预测（亿元）</span></div>
+  <table class="fin-table">
+  <thead><tr><th>年度</th><th>预测机构数</th><th>最小值</th><th>均值</th><th>最大值</th></tr></thead>
+  <tbody>{table_rows}</tbody>
+  </table>
+</div>''')
+
+    eps_str = eps_df.to_string() if has_eps else "暂无"
+    profit_str = profit_df.to_string() if has_profit else "暂无"
+    ratings_str = (
+        f"买入:{ratings.get('机构投资评级(近六个月)-买入',0)}, "
+        f"增持:{ratings.get('机构投资评级(近六个月)-增持',0)}, "
+        f"中性:{ratings.get('机构投资评级(近六个月)-中性',0)}"
+    ) if has_ratings else "暂无"
+
+    try:
+        insight = await asyncio.to_thread(
+            chat, module5_forecast_prompt(stock_name, eps_str, profit_str, ratings_str)
+        )
+        parts.append(f'<div class="insight">{insight}</div>')
+    except Exception:
+        pass
+
+    return "\n".join(parts)
+
+
+async def _generate_module6_divergence(stock_name: str, data: dict) -> str:
     news = data.get("news")
     reports = data.get("reports")
 
@@ -508,14 +663,14 @@ async def _generate_module5(stock_name: str, data: dict) -> str:
             report_text = "\n".join(items)
 
     try:
-        text = await asyncio.to_thread(chat, module5_prompt(stock_name, news_text, report_text))
+        text = await asyncio.to_thread(chat_with_search, module5_prompt(stock_name, news_text, report_text))
     except Exception:
         text = "市场分歧分析暂时无法生成。"
 
-    return module_html(5, _md(text))
+    return module_html(6, _md(text))
 
 
-async def _generate_module6(stock_name: str, data: dict) -> str:
+async def _generate_module7_price(stock_name: str, data: dict) -> str:
     kline = data.get("kline_90d")
     news = data.get("news")
 
@@ -552,18 +707,18 @@ async def _generate_module6(stock_name: str, data: dict) -> str:
             news_text = "\n".join(items)
 
     try:
-        text = await asyncio.to_thread(chat, module6_prompt(stock_name, kline_summary, news_text))
+        text = await asyncio.to_thread(chat_with_search, module6_prompt(stock_name, kline_summary, news_text))
     except Exception:
         text = "走势分析暂时无法生成。"
 
     chart = kline_chart("kline-90d", f"{stock_name} 近90日走势", dates, kline_data, volumes)
 
-    return module_html(6, f'''{chart}
+    return module_html(7, f'''{chart}
 {_md(text)}
 <div class="disclaimer">以上走势分析基于公开信息，不构成对未来股价的预测或投资建议。</div>''')
 
 
-def _generate_module7(stock_name: str, symbol: str, data: dict) -> str:
+def _generate_module8_reports(stock_name: str, symbol: str, data: dict) -> str:
     announcements = data.get("announcements")
     rows = []
 
@@ -583,10 +738,10 @@ def _generate_module7(stock_name: str, symbol: str, data: dict) -> str:
 <thead><tr><th>财报</th><th>披露日期</th></tr></thead>
 <tbody>{"".join(rows)}</tbody>
 </table>'''
-    return module_html(7, table)
+    return module_html(8, table)
 
 
-async def _generate_module_trade_ref(stock_name: str, data: dict) -> str:
+async def _generate_module9_trade_ref(stock_name: str, data: dict) -> str:
     quote = data.get("quote") or {}
     current_price = 0
     try:
@@ -627,15 +782,15 @@ async def _generate_module_trade_ref(stock_name: str, data: dict) -> str:
     full_context = "\n".join(context_parts)
 
     try:
-        text = await asyncio.to_thread(chat, module_trade_ref_prompt(stock_name, full_context))
+        text = await asyncio.to_thread(chat_with_search, module_trade_ref_prompt(stock_name, full_context))
     except Exception:
         text = "交易参考分析暂时无法生成。"
 
     disclaimer = '<div class="trading-disclaimer">以上交易参考基于历史数据和模型分析，不构成任何投资建议。股市有风险，投资需谨慎，请结合自身情况独立判断。</div>'
-    return module_html(8, f'{_md(text)}\n{disclaimer}')
+    return module_html(9, f'{_md(text)}\n{disclaimer}')
 
 
-async def _generate_module9_questions(stock_name: str, context: str) -> str:
+async def _generate_module10_questions(stock_name: str, context: str) -> str:
     try:
         text = await asyncio.to_thread(chat, module8_prompt(stock_name, context))
     except Exception:
@@ -652,7 +807,7 @@ async def _generate_module9_questions(stock_name: str, context: str) -> str:
     if not questions:
         questions = [f"<li>{text}</li>"]
 
-    return module_html(9, f'<ul class="questions-list">{"".join(questions)}</ul>')
+    return module_html(10, f'<ul class="questions-list">{"".join(questions)}</ul>')
 
 
 def _error_html(message: str) -> str:

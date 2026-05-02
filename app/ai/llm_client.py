@@ -20,6 +20,21 @@ def chat(messages: list[dict], temperature: float = 0.7) -> str:
     return resp.choices[0].message.content
 
 
+def chat_with_search(messages: list[dict], temperature: float = 0.7) -> str:
+    """同步调用LLM并启用web search工具，返回完整文本。"""
+    client = get_client()
+    try:
+        resp = client.chat.completions.create(
+            model=LLM_MODEL,
+            messages=messages,
+            temperature=temperature,
+            tools=[{"type": "web_search_20250305"}],
+        )
+        return resp.choices[0].message.content or ""
+    except Exception:
+        return chat(messages, temperature)
+
+
 def chat_stream(messages: list[dict], temperature: float = 0.7):
     """流式调用LLM，yield每个文本片段。"""
     client = get_client()

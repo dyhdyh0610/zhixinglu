@@ -16,7 +16,7 @@ def module1_prompt(stock_name: str, stock_info: dict) -> list[dict]:
     """模块1：这家公司在做什么（人话版）"""
     return [
         {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": f"""请用不超过150字的日常语言介绍"{stock_name}"这家公司在做什么。
+        {"role": "user", "content": f"""请用不超过200字的日常语言介绍"{stock_name}"这家公司在做什么。
 
 公司信息：
 {_format_dict(stock_info)}
@@ -26,8 +26,9 @@ def module1_prompt(stock_name: str, stock_info: dict) -> list[dict]:
 - 用类比和具体数字让普通人秒懂
 - 说清楚它的主要产品/服务是什么，客户是谁
 - 不要用"该公司"这种书面语，直接说公司名
+- 用markdown格式输出，可以用**加粗**突出关键数字和产品名，用换行分段
 
-直接输出介绍文字，不要加标题或前缀。"""}
+直接输出介绍文字，不要加一级或二级标题。"""}
     ]
 
 
@@ -35,7 +36,7 @@ def module2_prompt(stock_name: str, profit_data: str, indicators: str, peers_inf
     """模块2：它怎么赚钱（商业模式）"""
     return [
         {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": f"""请分析"{stock_name}"的商业模式。
+        {"role": "user", "content": f"""请用markdown格式分析"{stock_name}"的商业模式。
 
 利润表数据（最近年报）：
 {profit_data}
@@ -46,12 +47,19 @@ def module2_prompt(stock_name: str, profit_data: str, indicators: str, peers_inf
 主要竞争对手信息：
 {peers_info}
 
-请按以下结构输出（纯文字，不要markdown标记）：
+请按以下结构输出：
 
-1. 收入来源：这家公司的钱主要从哪几块业务来的，各占多少比例
-2. 利润来源：哪块业务最赚钱，整体利润率水平如何
-3. 主要竞争对手：列出2-3个主要对手
-4. 竞争优势：基于公开信息客观陈述，不评价好坏
+### 收入来源
+这家公司的钱主要从哪几块业务来的，各占多少比例
+
+### 利润来源
+哪块业务最赚钱，整体利润率水平如何
+
+### 主要竞争对手
+列出2-3个主要对手
+
+### 竞争优势
+基于公开信息客观陈述，不评价好坏
 
 用日常语言，简洁明了。"""}
     ]
@@ -93,11 +101,54 @@ def module4_prompt(stock_name: str, indicator_name: str, current_value: str,
     ]
 
 
-def module5_prompt(stock_name: str, news_text: str, report_text: str) -> list[dict]:
-    """模块5：市场分歧"""
+def module5_research_prompt(stock_name: str, report_title: str, report_org: str, report_date: str, rating: str = "") -> list[dict]:
+    """模块5：最新研报 — 单篇研报摘要"""
     return [
         {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": f"""基于以下近30天的公开信息，归纳市场对"{stock_name}"的分歧。
+        {"role": "user", "content": f"""请用2-3句话概括以下研报的核心观点。
+
+股票：{stock_name}
+研报标题：{report_title}
+发布机构：{report_org}
+发布日期：{report_date}
+评级：{rating or "未披露"}
+
+要求：
+- 基于标题推断核心观点和投资逻辑
+- 用日常语言，不超过100字
+- 直接输出摘要，不加前缀。"""}
+    ]
+
+
+def module5_forecast_prompt(stock_name: str, eps_data: str, profit_data: str, ratings_data: str) -> list[dict]:
+    """模块5：盈利预测 — 分析师一致预期解读"""
+    return [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": f"""请用2-3句话解读"{stock_name}"的分析师盈利预测数据。
+
+每股收益预测：
+{eps_data}
+
+净利润预测（亿元）：
+{profit_data}
+
+机构评级分布：
+{ratings_data}
+
+要求：
+- 用日常语言概括分析师对这家公司未来2-3年的盈利预期
+- 指出预测的一致性（最小值和最大值差距大不大）
+- 如果有评级数据，简要说明机构态度
+- 不超过150字，客观陈述，不给买卖建议
+- 直接输出，不加标题。"""}
+    ]
+
+
+def module5_prompt(stock_name: str, news_text: str, report_text: str) -> list[dict]:
+    """模块5：市场分歧（启用web search）"""
+    return [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": f"""请先搜索"{stock_name}"最近一个月的重要新闻和市场动态，然后结合以下公开信息，归纳市场对该公司的分歧。
 
 近期新闻：
 {news_text}
@@ -122,10 +173,10 @@ def module5_prompt(stock_name: str, news_text: str, report_text: str) -> list[di
 
 
 def module6_prompt(stock_name: str, kline_summary: str, news_text: str) -> list[dict]:
-    """模块6：最近股价走势分析"""
+    """模块6：最近股价走势分析（启用web search）"""
     return [
         {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": f"""请分析"{stock_name}"近90个交易日的股价走势。
+        {"role": "user", "content": f"""请先搜索"{stock_name}"近期的重要新闻事件，然后结合以下数据分析其近90个交易日的股价走势。
 
 K线数据摘要：
 {kline_summary}
@@ -146,7 +197,7 @@ K线数据摘要：
 
 
 def module_trade_ref_prompt(stock_name: str, full_context: str) -> list[dict]:
-    """模块：交易参考 — 综合所有数据给出交易参考"""
+    """模块：交易参考（启用web search）"""
     return [
         {"role": "system", "content": """你是"知行录"的AI分析师。你的任务是基于全面的数据分析，为投资者提供交易参考信息。
 
@@ -156,7 +207,7 @@ def module_trade_ref_prompt(stock_name: str, full_context: str) -> list[dict]:
 3. 给出具体的价格区间和条件判断
 4. 语气客观专业，不打鸡血也不制造恐慌
 5. 必须强调这是分析参考，不构成投资建议"""},
-        {"role": "user", "content": f"""基于以下对"{stock_name}"的完整分析数据，给出综合交易参考。
+        {"role": "user", "content": f"""请先搜索"{stock_name}"最新的市场消息和分析师观点，然后基于以下完整分析数据，给出综合交易参考。
 
 分析数据汇总：
 {full_context}
