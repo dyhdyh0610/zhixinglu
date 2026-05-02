@@ -22,11 +22,14 @@ def line_chart(container_id: str, title: str, x_data: list, series_list: list[di
     series = []
     colors = ["#2C3E2D", "#C9A961", "#D97757", "#7A9B6E", "#2A3B4D"]
     for i, s in enumerate(series_list):
-        series.append({
+        item = {
             "name": s["name"], "type": "line", "data": s["data"],
             "smooth": True, "lineStyle": {"width": 2},
             "itemStyle": {"color": colors[i % len(colors)]}
-        })
+        }
+        if any(v is None for v in s["data"]):
+            item["connectNulls"] = True
+        series.append(item)
     option = {
         "title": {"text": title, "left": "center", "textStyle": {"fontFamily": "'Source Serif Pro', 'Noto Serif SC', serif", "fontSize": 16, "color": "#2A2A2A"}},
         "tooltip": {"trigger": "axis"},

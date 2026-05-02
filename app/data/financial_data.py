@@ -20,6 +20,35 @@ def get_profit_sheet(symbol: str) -> pd.DataFrame:
     return df
 
 
+def get_dividend_yield(symbol: str) -> pd.DataFrame:
+    """获取个股历史分红率（同花顺数据源）。返回含 报告期、股息率 列的 DataFrame。"""
+    try:
+        df = ak.stock_fhps_detail_ths(symbol=symbol)
+    except Exception:
+        return pd.DataFrame()
+
+    rows = []
+    for _, row in df.iterrows():
+        period = str(row.get("报告期", ""))
+        rate = str(row.get("税前分红率", ""))
+        if rate == "--" or rate.strip() == "":
+            continue
+        rate_val = rate.replace("%", "").strip()
+        try:
+            rate_num = float(rate_val)
+        except ValueError:
+            continue
+
+        if "年报" in period:
+            year = period.replace("年报", "").strip()
+            rows.append({"报告期": f"{year}-12-31", "股息率": rate_num})
+        elif "中报" in period:
+            year = period.replace("中报", "").strip()
+            rows.append({"报告期": f"{year}-06-30", "股息率": rate_num})
+
+    return pd.DataFrame(rows) if rows else pd.DataFrame()
+
+
 def get_stock_info(symbol: str) -> dict:
     """获取个股基本信息。"""
     info = {}

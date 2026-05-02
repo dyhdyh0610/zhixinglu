@@ -6,6 +6,7 @@ from typing import AsyncGenerator
 from app.data.stock_search import search_stock
 from app.data.financial_data import (
     get_financial_summary, get_profit_sheet, get_cash_flow_sheet, get_stock_info,
+    get_dividend_yield,
 )
 from app.data.market_data import get_stock_kline, get_realtime_quote
 from app.data.valuation_data import get_valuation_history
@@ -19,6 +20,7 @@ from app.ai.prompts import (
     module_trade_ref_prompt,
 )
 from app.ai.dcf_model import calculate_dcf
+from app.ai.valuation_models import run_valuation_summary
 from app.report.html_template import report_html_head, module_html, report_html_footer
 from app.report.chart_config import pie_chart, line_chart, kline_chart, gauge_chart
 
@@ -75,6 +77,7 @@ async def _fetch_all_data(symbol: str) -> dict:
         "announcements": asyncio.to_thread(get_stock_announcements, symbol),
         "quote": asyncio.to_thread(get_realtime_quote, symbol),
         "profit_forecast": asyncio.to_thread(get_profit_forecast, symbol),
+        "dividend_yield": asyncio.to_thread(get_dividend_yield, symbol),
     }
 
     data = {}
@@ -159,6 +162,13 @@ async def _generate_module3(stock_name: str, data: dict) -> str:
                 continue
             vals_20 = recent_20[col].apply(_parse_number).tolist()
             chart_series.append({"name": display_name, "data": vals_20})
+
+        div_df = data.get("dividend_yield")
+        if div_df is not None and not div_df.empty:
+            div_map = dict(zip(div_df["报告期"].astype(str), div_df["股息率"]))
+            div_vals = [div_map.get(label) for label in x_labels]
+            if any(v is not None for v in div_vals):
+                chart_series.append({"name": "股息率", "data": div_vals})
 
         if chart_series:
             trend_chart = line_chart("fin-health-chart", "财务健康趋势（近20期）", x_labels, chart_series)
@@ -467,9 +477,58 @@ def _build_dcf_section(data: dict, quote: dict) -> str:
 </script>'''
 
 
+def _build_valuation_summary_table(data: dict) -> str:
+    results = run_valuation_summary(data)
+    if not results:
+        return ""
+
+    rows = ""
+    note = ""
+    for r in results:
+        fair_val = f"¥{r['fair_value']:.2f}"
+        pd_val = r["premium_discount"]
+        pd_str = f"{pd_val:+.1f}%"
+
+        assessment = r["assessment"]
+        if pd_val < -10:
+            css_class = "down"
+            if "Overvalued" in assessment or "overvalued" in assessment:
+                assessment = "估值过高"
+        elif pd_val > 10:
+            css_class = "up"
+            if "Undervalued" in assessment or "undervalued" in assessment:
+                assessment = "被低估"
+        else:
+            css_class = ""
+            if assessment == "定价":
+                pass
+            elif "Fair" in assessment or "fair" in assessment:
+                assessment = "定价合理"
+
+        if r.get("note"):
+            note = r["note"]
+
+        rows += f'<tr><td><strong>{r["method"]}</strong></td><td>{fair_val}</td><td>{pd_str}</td><td class="{css_class}">{assessment}</td></tr>\n'
+
+    table = f'''<div class="indicator-card">
+  <h3 style="font-family:var(--font-serif);margin-bottom:12px;">估值汇总</h3>
+  <table class="fin-table">
+    <thead><tr><th>方法</th><th>公允价值</th><th>溢价/折价</th><th>评估</th></tr></thead>
+    <tbody>{rows}</tbody>
+  </table>
+  {f'<p class="data-label" style="margin-top:8px;">{note}</p>' if note else ''}
+  <div class="disclaimer" style="margin-top:12px;">以上估值基于经典模型和公开财务数据自动计算，仅供参考。不同方法适用于不同类型的公司。</div>
+</div>'''
+    return table
+
+
 async def _generate_module4(stock_name: str, data: dict) -> str:
     val_data = data.get("valuation") or {}
     content_parts = []
+
+    valuation_table = _build_valuation_summary_table(data)
+    if valuation_table:
+        content_parts.append(valuation_table)
 
     for key, display in [("pe", "PE(TTM)"), ("pb", "PB")]:
         df = val_data.get(key)

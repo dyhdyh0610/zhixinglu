@@ -32,7 +32,7 @@ Config is loaded in `app/config.py` via python-dotenv.
 **Entry point**: `run.py` → `app/main.py` (FastAPI + uvicorn)
 
 **API endpoints**:
-- `GET /api/search?keyword=` — stock symbol/name search
+- `GET /api/search?q=` — stock symbol/name search
 - `GET /api/report/{symbol}` — streams HTML report via `StreamingResponse`
 
 **Data flow**: User searches stock → selects one → server fetches 11 data sources concurrently via `asyncio.to_thread()` (akshare is sync) → 10 report modules run sequentially, each calling the LLM → HTML chunks streamed to client for progressive rendering.
@@ -57,4 +57,15 @@ Config is loaded in `app/config.py` via python-dotenv.
 - No database — all data is fetched on-demand per request.
 - Prompts are in Chinese and written for a retail investor audience ("人话版").
 
+## Product Documents
+
+PRD and design specs live in `PRD/`:
+- `知行录_产品需求文档_v1.0.md` — full PRD (master document)
+- `功能1_单股深度分析.md` through `功能6_个人投资Agent.md` — individual feature specs
+- `设计规范_UI_UX.md` — UI/UX design system (colors, typography, interaction principles, cross-platform strategy for Web + mobile)
+
 请用中文来和我交互，包括回答问题，提问问题等，我的英语水平不太好
+
+需要获取股票相关的数据时通过开源项目akshare获取：
+- 项目地址：https://github.com/akfamily/akshare
+- 股票数据说明文档：https://akshare.akfamily.xyz/data/stock/stock.html
