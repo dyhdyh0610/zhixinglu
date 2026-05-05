@@ -17,7 +17,6 @@ from app.models.letter import get_latest_letter
 async def fetch_diagnosis_data(trade_intent: dict, holdings: list[dict]) -> dict:
     target_code = trade_intent["code"]
     target_market = trade_intent.get("market", "A")
-    holding_codes = [h["code"] for h in holdings] if holdings else []
 
     tasks = {
         "target_quote": asyncio.to_thread(get_batch_quotes, [target_code], target_market),
@@ -28,17 +27,27 @@ async def fetch_diagnosis_data(trade_intent: dict, holdings: list[dict]) -> dict
         "profit_forecast": asyncio.to_thread(get_profit_forecast, target_code, target_market),
         "dividend_yield": asyncio.to_thread(get_dividend_yield, target_code, target_market),
         "kline_30d": asyncio.to_thread(get_stock_kline, target_code, 30, target_market),
-        "stock_detail": asyncio.to_thread(get_stock_detail, target_code),
+        "stock_detail": asyncio.to_thread(get_stock_detail, target_code, target_market),
         "news": asyncio.to_thread(get_stock_news, target_code, target_market),
         "market_overview": asyncio.to_thread(get_market_overview),
     }
 
-    if holding_codes:
-        tasks["holdings_quotes"] = asyncio.to_thread(get_batch_quotes, holding_codes)
-        tasks["holdings_profiles"] = asyncio.to_thread(get_stock_profiles, holding_codes)
+    if holdings:
+        a_codes = [h["code"] for h in holdings if h.get("market", "A") != "HK"]
+        hk_codes = [h["code"] for h in holdings if h.get("market", "A") == "HK"]
+        if a_codes:
+            tasks["holdings_quotes_a"] = asyncio.to_thread(get_batch_quotes, a_codes, "A")
+            tasks["holdings_profiles_a"] = asyncio.to_thread(get_stock_profiles, a_codes, "A")
+        if hk_codes:
+            tasks["holdings_quotes_hk"] = asyncio.to_thread(get_batch_quotes, hk_codes, "HK")
+            tasks["holdings_profiles_hk"] = asyncio.to_thread(get_stock_profiles, hk_codes, "HK")
 
     tasks["latest_letter"] = asyncio.to_thread(get_latest_letter)
-    tasks["sector_data"] = asyncio.to_thread(_get_industry_data, target_code)
+
+    if target_market == "HK":
+        tasks["sector_data"] = asyncio.to_thread(_get_hk_industry_data, target_code)
+    else:
+        tasks["sector_data"] = asyncio.to_thread(_get_industry_data, target_code)
 
     keys = list(tasks.keys())
     results = await asyncio.gather(*tasks.values(), return_exceptions=True)
@@ -46,6 +55,16 @@ async def fetch_diagnosis_data(trade_intent: dict, holdings: list[dict]) -> dict
     data = {}
     for key, result in zip(keys, results):
         data[key] = None if isinstance(result, Exception) else result
+
+    # Merge split holdings data
+    data["holdings_quotes"] = {
+        **(data.pop("holdings_quotes_a", None) or {}),
+        **(data.pop("holdings_quotes_hk", None) or {}),
+    }
+    data["holdings_profiles"] = {
+        **(data.pop("holdings_profiles_a", None) or {}),
+        **(data.pop("holdings_profiles_hk", None) or {}),
+    }
 
     data["_target_code"] = target_code
     data["_target_market"] = target_market
@@ -82,3 +101,21 @@ def _get_industry_data(stock_code: str) -> dict | None:
         }
     except Exception:
         return None
+
+
+def _get_hk_industry_data(stock_code: str) -> dict | None:
+    """港股行业数据：从 yfinance 获取行业分类，无板块K线。"""
+    try:
+        from app.data.financial_data import _yf_info_safe
+        info = _yf_info_safe(stock_code)
+        industry = info.get("industry", "")
+        sector = info.get("sector", "")
+        if industry or sector:
+            return {
+                "industry_name": industry or sector,
+                "industry_kline": [],
+                "industry_change_pct": 0,
+            }
+    except Exception:
+        pass
+    return None

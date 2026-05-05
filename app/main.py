@@ -204,8 +204,13 @@ async def api_letter_generate(request: Request):
         stock_count = len(holdings)
         try:
             from app.data.portfolio_data import get_batch_quotes
-            codes = [h["code"] for h in holdings]
-            quotes = await asyncio.to_thread(get_batch_quotes, codes)
+            a_codes = [h["code"] for h in holdings if h.get("market", "A") != "HK"]
+            hk_codes = [h["code"] for h in holdings if h.get("market", "A") == "HK"]
+            quotes = {}
+            if a_codes:
+                quotes.update(await asyncio.to_thread(get_batch_quotes, a_codes, "A"))
+            if hk_codes:
+                quotes.update(await asyncio.to_thread(get_batch_quotes, hk_codes, "HK"))
             total_cost = sum(h["cost_price"] * h["shares"] for h in holdings)
             daily_pnl = sum(
                 (quotes.get(h["code"], {}).get("price", 0) - quotes.get(h["code"], {}).get("prev_close", 0)) * h["shares"]

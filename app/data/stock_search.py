@@ -6,6 +6,7 @@ logger = logging.getLogger(__name__)
 
 _stock_list_cache: pd.DataFrame | None = None
 _hk_stock_list_cache: pd.DataFrame | None = None
+_hk_list_load_failed: bool = False
 
 
 def _get_stock_list() -> pd.DataFrame:
@@ -16,13 +17,19 @@ def _get_stock_list() -> pd.DataFrame:
 
 
 def _get_hk_stock_list() -> pd.DataFrame:
-    global _hk_stock_list_cache
-    if _hk_stock_list_cache is None:
-        try:
-            df = ak.stock_hk_spot_em()
-            _hk_stock_list_cache = df[["代码", "名称"]].rename(columns={"代码": "code", "名称": "name"})
-        except Exception:
-            logger.exception("Failed to load HK stock list")
+    global _hk_stock_list_cache, _hk_list_load_failed
+    if _hk_stock_list_cache is not None and not _hk_stock_list_cache.empty:
+        return _hk_stock_list_cache
+    if _hk_stock_list_cache is not None and not _hk_list_load_failed:
+        return _hk_stock_list_cache
+    try:
+        df = ak.stock_hk_spot_em()
+        _hk_stock_list_cache = df[["代码", "名称"]].rename(columns={"代码": "code", "名称": "name"})
+        _hk_list_load_failed = False
+    except Exception:
+        logger.exception("Failed to load HK stock list")
+        _hk_list_load_failed = True
+        if _hk_stock_list_cache is None:
             _hk_stock_list_cache = pd.DataFrame(columns=["code", "name"])
     return _hk_stock_list_cache
 

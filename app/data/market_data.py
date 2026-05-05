@@ -47,6 +47,18 @@ def get_realtime_quote(symbol: str, market: str = "A") -> dict:
     """获取股票最新行情。"""
     try:
         if market == "HK":
+            from app.data.portfolio_data import _get_tencent_hk_quotes
+            tq = _get_tencent_hk_quotes([symbol])
+            if symbol in tq and tq[symbol].get("price"):
+                t = tq[symbol]
+                return {
+                    "最新价": t["price"],
+                    "开盘": t.get("prev_close", 0),
+                    "最高": 0,
+                    "最低": 0,
+                    "成交量": 0,
+                    "日期": datetime.now().strftime("%Y-%m-%d"),
+                }
             df = _get_kline_hk(symbol)
         else:
             df = _get_kline_tx(symbol)

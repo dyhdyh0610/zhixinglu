@@ -9,9 +9,11 @@ def get_stock_news(symbol: str, market: str = "A") -> pd.DataFrame:
     """获取个股近期新闻。"""
     try:
         df = ak.stock_news_em(symbol=symbol)
-        return df.head(30)
+        if df is not None and not df.empty:
+            return df.head(30)
     except Exception:
-        return pd.DataFrame()
+        pass
+    return pd.DataFrame()
 
 
 def get_research_reports(symbol: str, market: str = "A") -> pd.DataFrame:

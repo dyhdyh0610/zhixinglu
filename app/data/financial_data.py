@@ -6,6 +6,14 @@ import time
 logger = logging.getLogger(__name__)
 
 _yf_ticker_cache: dict = {}
+_yf_info_cache: dict = {}
+_YF_INFO_TTL = 3600
+
+_yf_circuit_open = False
+_yf_circuit_open_until = 0.0
+_YF_CIRCUIT_TIMEOUT = 300
+_yf_consecutive_failures = 0
+_YF_FAILURE_THRESHOLD = 3
 
 
 def _to_yf_ticker(symbol: str) -> str:
@@ -22,15 +30,62 @@ def _get_yf_ticker(symbol: str):
     return _yf_ticker_cache[symbol]
 
 
+def _yf_available() -> bool:
+    """检查 yfinance 熔断器是否允许请求。"""
+    global _yf_circuit_open
+    if not _yf_circuit_open:
+        return True
+    if time.time() > _yf_circuit_open_until:
+        _yf_circuit_open = False
+        return True
+    return False
+
+
+def _yf_mark_failed():
+    """连续失败后触发熔断。"""
+    global _yf_consecutive_failures, _yf_circuit_open, _yf_circuit_open_until
+    _yf_consecutive_failures += 1
+    if _yf_consecutive_failures >= _YF_FAILURE_THRESHOLD:
+        _yf_circuit_open = True
+        _yf_circuit_open_until = time.time() + _YF_CIRCUIT_TIMEOUT
+        logger.warning("yfinance circuit breaker opened for %ds", _YF_CIRCUIT_TIMEOUT)
+
+
+def _yf_mark_success():
+    """成功后重置失败计数。"""
+    global _yf_consecutive_failures
+    _yf_consecutive_failures = 0
+
+
 def _yf_info_safe(symbol: str) -> dict:
-    """安全获取 yfinance info，带重试。"""
+    """安全获取 yfinance info，带缓存、重试和熔断。"""
+    now = time.time()
+    cache_key = f"yf_info_{symbol}"
+
+    if cache_key in _yf_info_cache:
+        cached = _yf_info_cache[cache_key]
+        if now - cached["ts"] < _YF_INFO_TTL:
+            return cached["data"]
+
+    if not _yf_available():
+        if cache_key in _yf_info_cache:
+            return _yf_info_cache[cache_key]["data"]
+        return {}
+
     ticker = _get_yf_ticker(symbol)
-    for attempt in range(3):
+    for attempt in range(2):
         try:
-            return ticker.info
+            info = ticker.info
+            _yf_info_cache[cache_key] = {"data": info, "ts": now}
+            _yf_mark_success()
+            return info
         except Exception:
-            if attempt < 2:
+            if attempt < 1:
                 time.sleep(2 ** attempt)
+
+    _yf_mark_failed()
+    if cache_key in _yf_info_cache:
+        return _yf_info_cache[cache_key]["data"]
     return {}
 
 

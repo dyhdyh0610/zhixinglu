@@ -47,19 +47,21 @@ def get_market_overview() -> dict:
     return result
 
 
-def get_stock_detail(symbol: str) -> dict:
+def get_stock_detail(symbol: str, market: str = "A") -> dict:
     detail = {}
-    try:
-        fund = ak.stock_individual_fund_flow(stock=symbol, market="sh" if symbol.startswith("6") else "sz")
-        if fund is not None and not fund.empty:
-            latest = fund.iloc[-1]
-            detail["主力净流入"] = latest.get("主力净流入-净额", 0)
-            detail["超大单净流入"] = latest.get("超大单净流入-净额", 0)
-    except Exception:
-        pass
+
+    if market != "HK":
+        try:
+            fund = ak.stock_individual_fund_flow(stock=symbol, market="sh" if symbol.startswith("6") else "sz")
+            if fund is not None and not fund.empty:
+                latest = fund.iloc[-1]
+                detail["主力净流入"] = latest.get("主力净流入-净额", 0)
+                detail["超大单净流入"] = latest.get("超大单净流入-净额", 0)
+        except Exception:
+            pass
 
     try:
-        kline = get_stock_kline(symbol, 30)
+        kline = get_stock_kline(symbol, 30, market)
         if kline is not None and not kline.empty:
             closes = kline["close"].tolist()
             volumes = kline["volume"].tolist() if "volume" in kline.columns else []
@@ -80,31 +82,51 @@ def get_stock_detail(symbol: str) -> dict:
 
 
 async def fetch_letter_data(holdings: list[dict]) -> dict:
-    codes = [h["code"] for h in holdings]
+    a_holdings = [h for h in holdings if h.get("market", "A") != "HK"]
+    hk_holdings = [h for h in holdings if h.get("market", "A") == "HK"]
+    a_codes = [h["code"] for h in a_holdings]
+    hk_codes = [h["code"] for h in hk_holdings]
 
-    quotes_task = asyncio.to_thread(get_batch_quotes, codes)
-    market_task = asyncio.to_thread(get_market_overview)
+    tasks = []
+    task_keys = []
 
-    detail_tasks = {h["code"]: asyncio.to_thread(get_stock_detail, h["code"]) for h in holdings}
-    news_tasks = {h["code"]: asyncio.to_thread(get_stock_news, h["code"]) for h in holdings}
+    if a_codes:
+        tasks.append(asyncio.to_thread(get_batch_quotes, a_codes, "A"))
+        task_keys.append("quotes_a")
+    if hk_codes:
+        tasks.append(asyncio.to_thread(get_batch_quotes, hk_codes, "HK"))
+        task_keys.append("quotes_hk")
 
-    all_tasks = [quotes_task, market_task] + list(detail_tasks.values()) + list(news_tasks.values())
-    results = await asyncio.gather(*all_tasks, return_exceptions=True)
+    tasks.append(asyncio.to_thread(get_market_overview))
+    task_keys.append("market_overview")
 
-    quotes = results[0] if not isinstance(results[0], Exception) else {}
-    market_overview = results[1] if not isinstance(results[1], Exception) else {}
+    for h in holdings:
+        market = h.get("market", "A")
+        tasks.append(asyncio.to_thread(get_stock_detail, h["code"], market))
+        task_keys.append(f"detail_{h['code']}")
+        tasks.append(asyncio.to_thread(get_stock_news, h["code"], market))
+        task_keys.append(f"news_{h['code']}")
+
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    result_map = {}
+    for key, r in zip(task_keys, results):
+        result_map[key] = r if not isinstance(r, Exception) else None
+
+    quotes = {}
+    if result_map.get("quotes_a"):
+        quotes.update(result_map["quotes_a"])
+    if result_map.get("quotes_hk"):
+        quotes.update(result_map["quotes_hk"])
+
+    market_overview = result_map.get("market_overview") or {}
 
     stock_details = {}
-    offset = 2
-    for i, code in enumerate(detail_tasks.keys()):
-        r = results[offset + i]
-        stock_details[code] = r if not isinstance(r, Exception) else {}
-
     stock_news = {}
-    offset2 = offset + len(detail_tasks)
-    for i, code in enumerate(news_tasks.keys()):
-        r = results[offset2 + i]
-        stock_news[code] = r if not isinstance(r, Exception) else None
+    for h in holdings:
+        code = h["code"]
+        stock_details[code] = result_map.get(f"detail_{code}") or {}
+        stock_news[code] = result_map.get(f"news_{code}")
 
     return {
         "quotes": quotes,
