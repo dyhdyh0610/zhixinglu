@@ -123,39 +123,40 @@
 - 保存逻辑复用 `app/models/history.py` 的 `save_report()` 函数
 - 生成的报告正常出现在历史分析列表中
 
-### 摘要提取
+### 纯文本提取
 
-新增函数 `extract_report_summary(html_content) -> str`，位于 `diagnosis_generator.py`：
+新增函数 `extract_report_text(html_content) -> str`，位于 `diagnosis_generator.py`：
 
-用正则从报告 HTML 中提取各模块的关键内容段落。目标输出约 500-800 字的结构化文本：
+将完整报告 HTML 转为纯文本（strip 所有 HTML 标签、CSS、script），保留文本内容和基本换行结构。不做任何结构化解析或正则匹配——这样个股分析报告的 HTML 结构未来怎么迭代都不会影响诊断功能。
 
-```
-【估值分析】PE 15.2倍，低于行业均值20倍；PB 1.8倍，处于历史30%分位...
-【技术面分析】短期均线多头排列，MACD金叉，5日成交量放大...
-【基本面】营收增速12%，净利润率8.5%，ROE 15%...
-【资金面】近5日主力净流入2.3亿，北向资金增持...
-【机构观点】3家机构给出买入评级，目标价均值35元...
-```
+实现方式：使用 Python 标准库 `html.parser` 或简单的正则 `re.sub(r'<[^>]+>', '', html)` + 清理多余空白行。
 
-提取策略：匹配报告中各 section 的 `<div class="section">` 或 `<h2>` 标签后的前 2-3 段文字内容（strip HTML tags）。
+输出为完整的纯文本报告内容（通常 2000-4000 字），LLM 自行从中提取需要的信息。
 
 ### Prompt 注入
 
-各维度 prompt 函数新增 `report_context: str = ""` 参数。当有报告摘要时，在 user message 末尾追加：
+各维度 prompt 函数新增 `report_context: str = ""` 参数。当有报告文本时，在 user message 末尾追加：
 
 ```
 ---
-以下是该股票的完整分析报告摘要，供你参考：
+以下是该股票的完整分析报告，供你参考（请从中提取与本维度相关的信息辅助判断）：
 {report_context}
 ```
 
-注入到：价值诊断、仓位诊断、择时诊断（这三个维度最能从完整分析中受益）。市场诊断和板块环境不注入（它们关注的是宏观/行业层面）。
+注入到所有诊断维度（价值、仓位、择时、市场、板块环境），让每个维度都能参考完整分析的结论。LLM 会自行判断哪些信息与当前维度相关。
+
+设计优势：
+- 无需维护正则提取逻辑，个股分析模块迭代不影响诊断模块
+- LLM 能从完整上下文中发现结构化提取可能遗漏的关联信息
+- 代码更简单，维护成本更低
+
+Token 影响：每个维度增加约 2000-4000 tokens 输入（完整报告文本），相比结构化摘要方案 token 消耗更高，但换来了更好的可维护性和分析深度。
 
 ### 修改文件
 
-- `app/report/diagnosis_generator.py`：新增报告查询/生成/摘要提取逻辑
+- `app/report/diagnosis_generator.py`：新增报告查询/生成/纯文本提取逻辑
 - `app/ai/diagnosis_prompts.py`：各 prompt 函数增加 report_context 参数
-- `app/models/history.py`：可能需要新增按 stock_code + 时间范围查询的函数
+- `app/models/history.py`：新增按 stock_code + 时间范围查询的函数
 
 ---
 
@@ -380,7 +381,7 @@ Prompt 中对 `suggested_questions` 的要求：
 
 | 文件 | 改动类型 | 说明 |
 |------|---------|------|
-| `app/report/diagnosis_generator.py` | 重构 | 新增报告查询/生成、摘要提取、进度标记、板块环境步骤、结论JSON解析 |
+| `app/report/diagnosis_generator.py` | 重构 | 新增报告查询/生成、纯文本提取、进度标记、板块环境步骤、结论JSON解析 |
 | `app/ai/diagnosis_prompts.py` | 修改 | 各prompt增加report_context、新增sector_prompt、改造conclusion_prompt |
 | `app/report/diagnosis_template.py` | 修改 | 新增sector_html、改造conclusion_html（星级+结构化） |
 | `app/data/diagnosis_data.py` | 修改 | 新增板块数据获取 |
@@ -391,6 +392,6 @@ Prompt 中对 `suggested_questions` 的要求：
 ## 风险与注意事项
 
 1. **耗时增加**：无缓存时需先生成完整个股报告（约60-90秒），加上诊断本身（约30-40秒），总耗时可能达2分钟。进度条是关键的体验缓解措施。
-2. **Token 消耗**：报告摘要注入会增加每个维度约 500-800 tokens 的输入，板块环境新增一次 LLM 调用。整体 token 消耗增加约 40%。
+2. **Token 消耗**：完整报告纯文本注入会增加每个维度约 2000-4000 tokens 的输入，板块环境新增一次 LLM 调用。整体 token 消耗增加较多，但换来更好的可维护性（个股分析迭代不影响诊断）和更深的分析质量。
 3. **板块数据可用性**：akshare 的行业板块接口偶尔不稳定，需要做好 fallback（板块数据获取失败时跳过板块环境模块或使用纯搜索模式）。
 4. **结论 JSON 解析**：从纯文本改为 JSON 输出，需要做好 parse 失败的 fallback（降级为纯文本展示，不显示星级和 hints）。
