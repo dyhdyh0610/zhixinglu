@@ -1,99 +1,109 @@
+<div align="center">
+
 # 知行录
 
-**官网**：https://firyrice.github.io/zhixinglu/
+### AI 驱动的投资思考伙伴
 
-为散户量身定制的”AI交易助手”，涵盖选股研究 - 仓位管理 - 交易决策三个最关键环节，解决散户不会投研、没时间看盘盯盘、不懂组合管理、交易决策冲动研究不理智等各种问题。（我认为现阶段sota AI模型的投研能力是远超我自己以及大部分金融行业专业从业者的，只是没有合适的产品能让大家用起来）
+**不做预测，只做分析。帮你看清每一笔交易背后的逻辑。**
 
-把我所有的交易知识做了蒸馏，也欢迎大家自己diy开源项目，为项目贡献自己的力量，一起帮助更多的散户成长。让散户有一个全方位的AI投顾助手，从此少被割韭菜。
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Python 3.11+](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-teal.svg)](https://fastapi.tiangolo.com/)
 
-**联系方式**：1197846710@qq.com
+[官网](https://firyrice.github.io/zhixinglu/) · [快速开始](#快速开始) · [功能演示](#功能演示) · [B站频道](https://space.bilibili.com/117762790?spm_id_from=333.788.0.0)
 
-**关注我的B站频道“蛋炒饭财经”，获取产品更新信息**：https://space.bilibili.com/117762790?spm_id_from=333.1007.0.0
+</div>
 
-## 功能特性
+---
 
-### 单股深度分析
+## 为什么做这个项目？
 
-报告包含 10 个分析模块，逐步流式渲染到浏览器：
+散户投资有三个致命问题：**研究不深、盯盘焦虑、冲动交易**。
+
+市面上的工具要么太专业（Bloomberg Terminal），要么太浅（各种炒股 App 的资讯流）。我认为现阶段 SOTA AI 模型的投研能力已经远超大部分散户甚至金融从业者，只是缺少一个好用的产品把这个能力释放出来。
+
+知行录就是这样一个工具——把 AI 的深度分析能力，包装成散户真正用得上的三个功能：
+
+| 痛点 | 知行录的解法 |
+|------|-------------|
+| 不会做研究，看了一堆消息抓不住重点 | **个股深度分析**：10 维度研报，一键生成 |
+| 没时间盯盘，涨了不知道卖、跌了就慌 | **巴菲特来信**：每日一封 AI 持仓诊断 |
+| 买卖凭感觉，事后总后悔 | **交易诊断**：下单前 6 维度系统检查 |
+
+## 功能演示
+
+### 个股深度分析
+
+输入股票代码，一键生成覆盖 10 大维度的全方位研报。从"这家公司在做什么"到"该不该买"，用人话把复杂的财务数据讲清楚。
+
+<img src="website/images/feature-analysis.png" width="700" alt="个股深度分析">
+
+<details>
+<summary>10 个分析模块详情</summary>
 
 | 模块 | 内容 |
 |------|------|
-| 这家公司在做什么 | 公司业务概览，AI 生成的通俗介绍 |
-| 它怎么赚钱 | 商业模式与盈利结构分析 |
-| 财务体检 | 营收、利润、毛利率、ROE 等指标趋势 + DCF 估值（可交互调参） |
-| 估值坐标 | 5 种经典估值方法汇总表 + PE/PB 历史分位数 |
-| 最新研报 | 券商研报摘要 + 分析师盈利预测 |
-| 市场分歧 | 多空观点梳理，结合新闻与研报 |
-| 股价走势分析 | 近 90 日 K 线图 + AI 走势解读 |
-| 财报附录 | 最新财报公告索引 |
-| 交易参考 | 基于数据的买卖参考框架 |
-| 延展问题 | AI 生成的深度思考问题 |
+| 这家公司在做什么 | 业务概览，AI 生成的通俗介绍 |
+| 它怎么赚钱 | 商业模式与盈利结构 |
+| 财务体检 | 营收、利润、ROE 趋势 + 可交互 DCF 估值 |
+| 估值坐标 | 5 种经典估值 + PE/PB 历史分位 |
+| 最新研报 | 券商观点摘要 + 盈利预测 |
+| 市场分歧 | 多空观点梳理 |
+| 股价走势 | 90 日 K 线 + AI 技术解读 |
+| 财报附录 | 最新公告索引 |
+| 交易参考 | 数据驱动的买卖框架 |
+| 延展问题 | AI 生成的深度思考题 |
 
-### 持仓追踪
+</details>
 
-- **实盘盈亏**：手动录入或截图导入持仓，实时计算总资产、今日盈亏、累计盈亏
-- **截图导入**：上传券商 App 持仓截图，通过 VLM（Gemini）自动识别股票名称、数量、市值、盈亏并批量导入
-- **实盘穿透**：行业分布、市值规模（大盘/中盘/小盘）、估值风格、股息特征的饼图分析
-- **多数据源**：行情数据优先东方财富，备选腾讯财经，确保高可用
+### 巴菲特来信（每日持仓诊断）
 
-### 估值分析
+每天收盘后，基于你的实际持仓，以巴菲特的口吻写一封专属分析信。涵盖持仓涨跌解读、热点情报、市场研判、风险体检和操作建议。
 
-- **DCF 两阶段模型**：10 年预测期，支持浏览器内拖动滑块实时调整 WACC、增长率等参数
-- **估值汇总表**：自动计算格雷厄姆数、DDM（戈登增长）、GARP、反向 DCF、格雷厄姆公式 5 种经典估值
-- **历史分位**：PE(TTM) 和 PB 的 5 年历史百分位仪表盘
-
-### 巴菲特来信（每日收盘总结）
-
-每日收盘后，基于你的持仓数据，以巴菲特的口吻生成一封专属分析报告：
-
-- **今日持仓全景**：组合盈亏数据卡片 + 每只持仓股的涨跌、资金流向、技术信号点评
-- **精选热点情报**：与持仓相关的高价值新闻精选（3-5 条），附影响分析
-- **市场大势研判**：大盘走势、板块轮动、北向资金、政策外围的价值投资视角解读
-- **组合风险体检**：仓位集中度、行业暴露、止损预警、整体回撤评估
-- **策略建议**：每只持仓股的操作方向（持有/加仓/减仓）+ 理由 + 风险提示
-- **信箱管理**：历史来信列表，未读/已读状态，首页通知卡片
+<img src="website/images/feature-letter.png" width="700" alt="巴菲特来信">
 
 ### 交易诊断
 
-在执行交易前，输入交易意图（股票 + 方向 + 数量），AI 从 6 个维度进行系统性诊断：
+买入还是卖出？下单前先让 AI 做个系统检查。输入交易意图，从价值、仓位、时机、市场、板块、风险 6 个维度给出诊断，还支持追问对话。
 
-- **加载进度**：步骤式进度条，实时显示当前分析阶段
-- **个股报告复用**：自动加载或生成完整个股分析报告作为诊断 context（2 天内缓存复用）
-- **价值诊断**：PE/PB 历史分位、DCF 参考价、研报共识、核心投资逻辑
-- **仓位诊断**：仓位占比变化、行业集中度、分散化评分
-- **择时诊断**：技术信号标签、支撑/压力位、成交量分析、催化剂/风险事件
-- **市场诊断**：市场情绪温度计（0-100）、北向资金、宏观风险
-- **板块环境**：行业走势、竞争对手对比表、板块内投资价值排名
-- **综合判断**：信心指数（5 星评级）+ 关键要点 + 3 个预设追问问题
-- **追问聊天**：基于诊断结果的多轮对话，支持点击预设问题快速提问
+<img src="website/images/feature-diagnosis.png" width="700" alt="交易诊断">
+
+### 持仓追踪
+
+券商截图一键导入持仓（VLM 智能识别），实时盈亏计算，行业/市值/估值/股息多维穿透分析。
+
+<img src="website/images/hero-screenshot.png" width="700" alt="产品主界面">
 
 ## 快速开始
+
+### 3 步跑起来
+
+```bash
+# 1. 克隆并安装
+git clone https://github.com/firyrice/zhixinglu.git
+cd zhixinglu
+pip install -r requirements.txt
+
+# 2. 配置 API Key
+cp .env.example .env
+# 编辑 .env，填入你的 LLM API Key
+
+# 3. 启动
+python3 run.py
+# 打开 http://localhost:5001
+```
 
 ### 环境要求
 
 - Python >= 3.11
-- 一个 OpenAI 兼容的 LLM API（OpenAI、Anthropic、DeepSeek、本地模型等均可）
+- 一个 OpenAI 兼容的 LLM API
 
-### 安装
-
-```bash
-git clone https://github.com/firyrice/zhixinglu.git
-cd zhixinglu
-pip install -r requirements.txt
-```
-
-### 配置 API Key
-
-复制示例配置文件并填入你的 API 信息：
-
-```bash
-cp .env.example .env
-```
+### API 配置
 
 编辑 `.env` 文件：
 
 ```env
-# LLM：用于生成分析报告（支持任何 OpenAI 兼容的 API 端点）
+# LLM：用于生成分析报告（支持任何 OpenAI 兼容接口）
 LLM_BASE_URL=https://api.openai.com/v1
 LLM_API_KEY=your-api-key-here
 LLM_MODEL=gpt-4o
@@ -104,86 +114,62 @@ VLM_API_KEY=your-api-key-here
 VLM_MODEL=gemini-3.1-pro
 ```
 
-**常见配置示例：**
+支持的 LLM 服务商：
 
 | 服务商 | LLM_BASE_URL | LLM_MODEL |
 |--------|-------------|-----------|
 | OpenAI | `https://api.openai.com/v1` | `gpt-4o` |
-| Anthropic (兼容层) | `https://api.anthropic.com/v1` | `claude-sonnet-4-6` |
+| Anthropic | `https://api.anthropic.com/v1` | `claude-sonnet-4-6` |
 | DeepSeek | `https://api.deepseek.com` | `deepseek-chat` |
 | 本地 Ollama | `http://localhost:11434/v1` | `qwen2.5:72b` |
 
-> 项目通过 OpenAI SDK 调用 LLM，因此任何兼容 OpenAI API 格式的服务都可以使用。
+> 项目通过 OpenAI SDK 调用，任何兼容 OpenAI API 格式的服务都可以直接使用。
 
-### 启动
+## 技术栈
 
-```bash
-python3 run.py
-```
-
-打开浏览器访问 http://localhost:5001，输入股票代码或名称即可生成报告。
+| 层 | 技术 |
+|----|------|
+| 后端 | FastAPI + uvicorn |
+| 数据源 | [akshare](https://github.com/akfamily/akshare)（A股/港股行情、财务、研报） |
+| 估值引擎 | [valueinvest](https://github.com/wangzhe3224/valueinvest) + 自研 DCF |
+| AI | OpenAI SDK（兼容任意 OpenAI 格式的 LLM/VLM） |
+| 前端 | 原生 HTML/JS SPA + [ECharts](https://echarts.apache.org/) |
+| 存储 | SQLite（零配置） |
 
 ## 项目架构
 
 ```
 zhixinglu/
-├── run.py                  # 入口，启动 uvicorn
+├── run.py                      # 入口
 ├── app/
-│   ├── main.py             # FastAPI 应用，定义 API 路由
-│   ├── config.py           # 环境变量配置
-│   ├── ai/
-│   │   ├── llm_client.py   # LLM 调用封装（OpenAI SDK）
-│   │   ├── vision_client.py # VLM 截图识别（Gemini）
-│   │   ├── prompts.py      # 10 个分析模块的中文 prompt
-│   │   ├── letter_prompts.py # 巴菲特来信 prompt（巴菲特 + 分析师双人格）
-│   │   ├── diagnosis_prompts.py # 交易诊断 prompt（6 维度 + 结论）
-│   │   ├── dcf_model.py    # DCF 两阶段估值模型
-│   │   └── valuation_models.py  # 5 种经典估值方法
-│   ├── data/
-│   │   ├── financial_data.py    # 财务数据（利润表、现金流、分红）
-│   │   ├── market_data.py       # 行情数据（K线、实时报价）
-│   │   ├── portfolio_data.py    # 持仓数据（行情、行业、市值分类）
-│   │   ├── letter_data.py       # 来信数据聚合（大盘、资金流、新闻）
-│   │   ├── diagnosis_data.py    # 诊断数据聚合（个股 + 板块 + 市场）
-│   │   ├── valuation_data.py    # 估值历史（PE/PB）
-│   │   ├── news_data.py         # 新闻、研报、公告
-│   │   └── stock_search.py      # 股票搜索
-│   ├── models/
-│   │   ├── history.py       # 分析报告历史（SQLite）
-│   │   ├── letter.py        # 巴菲特来信存储（SQLite）
-│   │   └── diagnosis.py     # 交易诊断存储（SQLite）
-│   ├── report/
-│   │   ├── generator.py     # 报告生成器（10 模块编排）
-│   │   ├── letter_generator.py  # 来信生成器（5 模块流式输出）
-│   │   ├── diagnosis_generator.py # 诊断生成器（6 维度流式输出）
-│   │   ├── letter_template.py   # 来信 HTML/CSS 模板
-│   │   ├── diagnosis_template.py # 诊断 HTML/CSS 模板
-│   │   ├── html_template.py # HTML/CSS 模板
-│   │   └── chart_config.py  # ECharts 图表配置
-│   └── static/
-│       ├── index.html       # 前端入口
-│       ├── css/             # 样式文件
-│       └── js/              # 前端模块（store, router, portfolio, charts, import-screenshot 等）
-├── PRD/                     # 产品需求文档
-├── requirements.txt
-└── .env.example
+│   ├── main.py                 # FastAPI 路由
+│   ├── ai/                     # LLM/VLM 调用 + Prompt 工程
+│   ├── data/                   # akshare 数据层（行情、财务、新闻）
+│   ├── models/                 # SQLite 持久化
+│   ├── report/                 # 报告生成器 + HTML 模板
+│   └── static/                 # 前端 SPA
+├── website/                    # 官网（独立静态站）
+└── PRD/                        # 产品文档
 ```
 
-**数据流：** 用户搜索股票 → 选择 → 服务端并发获取 11 个数据源（akshare） → 10 个分析模块顺序执行，每个调用 LLM → HTML 分块流式返回浏览器渐进渲染。
+**数据流**：用户输入 → 并发获取 11 个数据源 → 10 个 AI 分析模块顺序执行 → HTML 流式渲染到浏览器
 
-## 技术栈
+## 参与贡献
 
-- **后端**：FastAPI + uvicorn
-- **数据源**：[akshare](https://github.com/akfamily/akshare)（A 股行情、财务、研报等）
-- **估值模型**：[valueinvest](https://github.com/wangzhe3224/valueinvest)（经典估值方法库）
-- **LLM**：OpenAI SDK（兼容任意 OpenAI API 格式的服务）
-- **VLM**：Gemini 3.1 Pro或其他VLM模型（持仓截图识别，通过 OpenAI 兼容接口调用）
-- **前端**：原生 HTML/JS + [ECharts](https://echarts.apache.org/) 图表
+欢迎 PR 和 Issue！无论是修 bug、加功能、优化 prompt，还是分享你的投资分析思路，都非常欢迎。
+
+如果这个项目对你有帮助，请给个 Star 支持一下。
+
+## 联系方式
+
+- **B站**：[蛋炒饭财经](https://space.bilibili.com/117762790?spm_id_from=333.788.0.0)（产品更新、使用教程）
+- **邮箱**：1197846710@qq.com
 
 ## 免责声明
 
-本工具生成的分析报告仅供学习和参考，不构成任何投资建议。股市有风险，投资需谨慎，请结合自身情况独立判断。
+本工具生成的分析报告仅供学习和参考，不构成任何投资建议。股市有风险，投资需谨慎。
 
 ## License
 
 MIT
+
