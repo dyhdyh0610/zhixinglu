@@ -120,6 +120,25 @@ body {{
   animation: fadeIn 0.5s ease-in;
 }}
 
+/* 模块0：操作建议 — 置顶高亮 */
+#module-0 {{
+  background: var(--card-bg);
+  border-radius: 16px;
+  border: 2px solid var(--accent-gold);
+  padding: 32px 28px;
+  box-shadow: 0 4px 16px rgba(201, 169, 97, 0.15);
+}}
+#module-0 .module-number {{
+  color: var(--up-color);
+  font-size: 13px;
+  letter-spacing: 3px;
+}}
+#module-0 h2 {{
+  color: var(--up-color);
+  font-size: 24px;
+  margin-bottom: 24px;
+}}
+
 @keyframes fadeIn {{
   from {{ opacity: 0; transform: translateY(12px); }}
   to {{ opacity: 1; transform: translateY(0); }}
@@ -575,6 +594,7 @@ body {{
 
 
 MODULE_TITLES = {
+    0: "操作建议",
     1: "这家公司在做什么",
     2: "它怎么赚钱",
     3: "财务体检",

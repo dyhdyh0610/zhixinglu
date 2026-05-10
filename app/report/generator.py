@@ -17,7 +17,7 @@ from app.ai.prompts import (
     module4_prompt, module5_research_prompt, module5_prompt,
     module5_forecast_prompt,
     module6_prompt, module8_prompt,
-    module_trade_ref_prompt,
+    module_trade_ref_prompt, module0_prompt,
 )
 from app.ai.dcf_model import calculate_dcf
 from app.ai.valuation_models import run_valuation_summary
@@ -49,6 +49,7 @@ async def generate_report(symbol: str) -> AsyncGenerator[str, None]:
 
     data = await _fetch_all_data(stock_code, market)
 
+    yield await _generate_module0_trade_advice(stock_name, data)
     yield await _generate_module1(stock_name, data)
     yield await _generate_module2(stock_name, data)
     yield await _generate_module3(stock_name, data)
@@ -101,6 +102,54 @@ def _brief_financials(data: dict) -> str:
         if v:
             parts.append(f"{col}:{v}")
     return "，".join(parts) if parts else "暂无"
+
+
+async def _generate_module0_trade_advice(stock_name: str, data: dict) -> str:
+    """模块0：投资建议 — 直接给操作结论，放最前面。"""
+    quote = data.get("quote") or {}
+    current_price = 0
+    try:
+        current_price = float(quote.get("最新价", 0))
+    except (ValueError, TypeError):
+        pass
+
+    context_parts = [f"股票名称：{stock_name}", f"当前股价：¥{current_price}"]
+
+    fs = data.get("financial_summary")
+    if fs is not None and not fs.empty:
+        latest = fs.iloc[-1]
+        for col in ["营业总收入", "净利润", "销售毛利率", "净资产收益率", "营业总收入同比增长率"]:
+            v = latest.get(col, "")
+            if v:
+                context_parts.append(f"{col}：{v}")
+
+    kline = data.get("kline_90d")
+    if kline is not None and not kline.empty:
+        highs = kline["high"].tolist()
+        lows = kline["low"].tolist()
+        closes = kline["close"].tolist()
+        context_parts.append(f"90日最高价：{max(highs)}")
+        context_parts.append(f"90日最低价：{min(lows)}")
+        context_parts.append(f"90日涨跌幅：{(closes[-1] - closes[0]) / closes[0] * 100:+.1f}%")
+
+    val_data = data.get("valuation") or {}
+    for key, display in [("pe", "PE(TTM)"), ("pb", "PB")]:
+        df = val_data.get(key)
+        if df is not None and not df.empty:
+            current_val = float(df["value"].iloc[-1])
+            series = df["value"]
+            percentile = (series < current_val).sum() / len(series) * 100
+            context_parts.append(f"{display}：{current_val:.1f}，历史分位{percentile:.0f}%")
+
+    context_parts.append(f"DCF估值参考：详见财务体检模块")
+    full_context = "\n".join(context_parts)
+
+    try:
+        text = await asyncio.to_thread(chat_with_search, module0_prompt(stock_name, full_context))
+    except Exception:
+        text = "操作建议暂时无法生成。"
+
+    return module_html(0, f'{_md(text)}\n<div class="trading-disclaimer">以上为AI基于公开数据的分析参考，不构成投资建议。股市有风险，请结合自身情况独立判断。</div>')
 
 
 async def _generate_module1(stock_name: str, data: dict) -> str:
