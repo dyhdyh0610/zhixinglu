@@ -5,3 +5,5 @@ __pycache__/
 PRD/
 .superpowers/
 app/data/history.db
+*.log
+bot_started.txt
