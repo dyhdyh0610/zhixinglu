@@ -18,6 +18,7 @@ from app.ai.prompts import (
     module5_forecast_prompt,
     module6_prompt, module8_prompt,
     module_trade_ref_prompt, module0_prompt,
+    module8_strategies_prompt,
 )
 from app.ai.dcf_model import calculate_dcf
 from app.ai.valuation_models import run_valuation_summary
@@ -57,11 +58,12 @@ async def generate_report(symbol: str) -> AsyncGenerator[str, None]:
     yield await _generate_module5_research(stock_name, data)
     yield await _generate_module6_divergence(stock_name, data)
     yield await _generate_module7_price(stock_name, data)
-    yield _generate_module8_reports(stock_name, stock_code, data)
-    yield await _generate_module9_trade_ref(stock_name, data)
+    yield await _generate_module8_strategies(stock_name, data)
+    yield _generate_module9_reports(stock_name, stock_code, data)
+    yield await _generate_module10_trade_ref(stock_name, data)
 
     context = f"{stock_name}，最新财务数据：{_brief_financials(data)}"
-    yield await _generate_module10_questions(stock_name, context)
+    yield await _generate_module11_questions(stock_name, context)
 
     yield report_html_footer()
 
@@ -523,9 +525,10 @@ def _build_dcf_section(data: dict, quote: dict) -> str:
         axisLine:{{lineStyle:{{width:20,color:[[0.3,'#7A9B6E'],[0.7,'#E8A87C'],[1,'#D97757']]}}}},
         axisTick:{{show:false}},splitLine:{{show:false}},
         splitNumber:4,
-        axisLabel:{{fontSize:11,distance:30}},
-        detail:{{formatter:'{{value}}\\n当前股价 ¥'+P.current_price,fontSize:16,offsetCenter:[0,'40%'],color:'#2A2A2A'}},
-        data:[{{value:P.current_price.toFixed(2)}}]
+        axisLabel:{{fontSize:11,distance:25,color:'#6B6B6B'}},
+        detail:{{formatter:'{{value}}',fontSize:20,fontWeight:600,offsetCenter:[0,'30%'],color:'#2A2A2A'}},
+        title:{{offsetCenter:[0,'55%'],fontSize:13,color:'#6B6B6B'}},
+        data:[{{value:P.current_price.toFixed(2),name:'当前股价 ¥'+P.current_price.toFixed(2)}}]
       }}]
     }});
   }}
@@ -807,7 +810,7 @@ async def _generate_module7_price(stock_name: str, data: dict) -> str:
     news = data.get("news")
 
     if kline is None or kline.empty:
-        return module_html(6, "<p>近期K线数据暂不可用。</p>")
+        return module_html(7, "<p>近期K线数据暂不可用。</p>")
 
     dates = kline["date"].astype(str).tolist()
     opens = kline["open"].tolist()
@@ -850,7 +853,65 @@ async def _generate_module7_price(stock_name: str, data: dict) -> str:
 <div class="disclaimer">以上走势分析基于公开信息，不构成对未来股价的预测或投资建议。</div>''')
 
 
-def _generate_module8_reports(stock_name: str, symbol: str, data: dict) -> str:
+
+
+async def _generate_module8_strategies(stock_name: str, data: dict) -> str:
+    """模块8：三种投资策略对比（短线/中线/长线）"""
+    quote = data.get("quote") or {}
+    current_price = 0
+    try:
+        current_price = float(quote.get("最新价", 0))
+    except (ValueError, TypeError):
+        pass
+
+    context_parts = [f"股票名称：{stock_name}", f"当前股价：¥{current_price}"]
+
+    fs = data.get("financial_summary")
+    if fs is not None and not fs.empty:
+        latest = fs.iloc[-1]
+        for col in ["营业总收入", "净利润", "销售毛利率", "净资产收益率", "营业总收入同比增长率", "净利润同比增长率"]:
+            v = latest.get(col, "")
+            if v:
+                context_parts.append(f"{col}：{v}")
+
+    kline = data.get("kline_90d")
+    if kline is not None and not kline.empty:
+        highs = kline["high"].tolist()
+        lows = kline["low"].tolist()
+        closes = kline["close"].tolist()
+        context_parts.append(f"90日最高价：{max(highs)}")
+        context_parts.append(f"90日最低价：{min(lows)}")
+        context_parts.append(f"90日涨跌幅：{(closes[-1] - closes[0]) / closes[0] * 100:+.1f}%")
+
+    val_data = data.get("valuation") or {}
+    for key, display in [("pe", "PE(TTM)"), ("pb", "PB")]:
+        df = val_data.get(key)
+        if df is not None and not df.empty:
+            current_val = float(df["value"].iloc[-1])
+            series = df["value"]
+            percentile = (series < current_val).sum() / len(series) * 100
+            context_parts.append(f"{display}：{current_val:.1f}，历史分位{percentile:.0f}%")
+
+    context_parts.append("DCF估值参考：详见财务体检模块")
+
+    info = data.get("info") or {}
+    if info.get("行业"):
+        context_parts.append(f"所属行业：{info['行业']}")
+    if info.get("主营业务"):
+        context_parts.append(f"主营业务：{info['主营业务']}")
+
+    full_context = "\n".join(context_parts)
+
+    try:
+        text = await asyncio.to_thread(chat_with_search, module8_strategies_prompt(stock_name, full_context))
+    except Exception:
+        text = "投资策略分析暂时无法生成。"
+
+    disclaimer = '<div class="trading-disclaimer">以上策略分析基于历史数据和模型，不构成任何投资建议。市场有风险，请结合自身情况独立判断。</div>'
+    return module_html(8, f'{_md(text)}\n{disclaimer}')
+
+
+def _generate_module9_reports(stock_name: str, symbol: str, data: dict) -> str:
     announcements = data.get("announcements")
     rows = []
 
@@ -870,10 +931,10 @@ def _generate_module8_reports(stock_name: str, symbol: str, data: dict) -> str:
 <thead><tr><th>财报</th><th>披露日期</th></tr></thead>
 <tbody>{"".join(rows)}</tbody>
 </table>'''
-    return module_html(8, table)
+    return module_html(9, table)
 
 
-async def _generate_module9_trade_ref(stock_name: str, data: dict) -> str:
+async def _generate_module10_trade_ref(stock_name: str, data: dict) -> str:
     quote = data.get("quote") or {}
     current_price = 0
     try:
@@ -919,10 +980,10 @@ async def _generate_module9_trade_ref(stock_name: str, data: dict) -> str:
         text = "交易参考分析暂时无法生成。"
 
     disclaimer = '<div class="trading-disclaimer">以上交易参考基于历史数据和模型分析，不构成任何投资建议。股市有风险，投资需谨慎，请结合自身情况独立判断。</div>'
-    return module_html(9, f'{_md(text)}\n{disclaimer}')
+    return module_html(10, f'{_md(text)}\n{disclaimer}')
 
 
-async def _generate_module10_questions(stock_name: str, context: str) -> str:
+async def _generate_module11_questions(stock_name: str, context: str) -> str:
     try:
         text = await asyncio.to_thread(chat, module8_prompt(stock_name, context))
     except Exception:
@@ -939,7 +1000,7 @@ async def _generate_module10_questions(stock_name: str, context: str) -> str:
     if not questions:
         questions = [f"<li>{text}</li>"]
 
-    return module_html(10, f'<ul class="questions-list">{"".join(questions)}</ul>')
+    return module_html(11, f'<ul class="questions-list">{"".join(questions)}</ul>')
 
 
 def _error_html(message: str) -> str:

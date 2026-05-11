@@ -96,9 +96,10 @@ def gauge_chart(container_id: str, title: str, current: float, min_val: float,
             "axisTick": {"show": False},
             "splitLine": {"show": False},
             "splitNumber": 4,
-            "axisLabel": {"fontSize": 11, "distance": 30},
-            "detail": {"formatter": f"{{value}}\n{label}", "fontSize": 16, "offsetCenter": [0, "40%"], "color": "#2A2A2A"},
-            "data": [{"value": round(current, 2)}]
+            "axisLabel": {"fontSize": 11, "distance": 25, "color": "#6B6B6B"},
+            "detail": {"formatter": "{value}", "fontSize": 20, "fontWeight": 600, "offsetCenter": [0, "30%"], "color": "#2A2A2A"},
+            "title": {"offsetCenter": [0, "55%"], "fontSize": 13, "color": "#6B6B6B"},
+            "data": [{"value": round(current, 2), "name": label}]
         }]
     }
     return _chart_html(container_id, option, height="280px")
