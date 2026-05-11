@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "skill-reviewer": {
+      "source": "Liu-PenPen/skill-review",
+      "sourceType": "github",
+      "skillPath": "SKILL.md",
+      "computedHash": "b6f3957460e617499215e34c0395dddfe30fea6bc52d75962d553c3820dfeb2a"
+    }
+  }
+}

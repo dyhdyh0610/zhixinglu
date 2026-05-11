@@ -19,6 +19,7 @@ from app.ai.prompts import (
     module6_prompt, module8_prompt,
     module_trade_ref_prompt, module0_prompt,
     module8_strategies_prompt,
+    custom_mixed_strategy_prompt,
 )
 from app.ai.dcf_model import calculate_dcf
 from app.ai.valuation_models import run_valuation_summary
@@ -99,7 +100,7 @@ def _brief_financials(data: dict) -> str:
         return "暂无"
     latest = fs.iloc[-1]
     parts = []
-    for col in ["营业总收入", "净利润", "销售毛利率", "净资产收益率"]:
+    for col in ["营业总收入", "净利润", "销售净利率", "净资产收益率"]:
         v = latest.get(col, "")
         if v:
             parts.append(f"{col}:{v}")
@@ -120,7 +121,7 @@ async def _generate_module0_trade_advice(stock_name: str, data: dict) -> str:
     fs = data.get("financial_summary")
     if fs is not None and not fs.empty:
         latest = fs.iloc[-1]
-        for col in ["营业总收入", "净利润", "销售毛利率", "净资产收益率", "营业总收入同比增长率"]:
+        for col in ["营业总收入", "净利润", "销售净利率", "净资产收益率", "营业总收入同比增长率"]:
             v = latest.get(col, "")
             if v:
                 context_parts.append(f"{col}：{v}")
@@ -161,7 +162,7 @@ async def _generate_module1(stock_name: str, data: dict) -> str:
         latest = fs.iloc[-1]
         info["营业总收入"] = latest.get("营业总收入", "")
         info["净利润"] = latest.get("净利润", "")
-        info["销售毛利率"] = latest.get("销售毛利率", "")
+        info["销售净利率"] = latest.get("销售净利率", "")
     try:
         text = await asyncio.to_thread(chat, module1_prompt(stock_name, info))
     except Exception:
@@ -179,7 +180,7 @@ async def _generate_module2(stock_name: str, data: dict) -> str:
 
     ind_str = "暂无数据"
     if fs is not None and not fs.empty:
-        ind_str = fs.tail(5)[["报告期", "营业总收入", "净利润", "销售毛利率", "净资产收益率"]].to_string()
+        ind_str = fs.tail(5)[["报告期", "营业总收入", "净利润", "销售净利率", "净资产收益率"]].to_string()
 
     try:
         text = await asyncio.to_thread(chat, module2_prompt(stock_name, profit_str, ind_str, ""))
@@ -197,7 +198,7 @@ async def _generate_module3(stock_name: str, data: dict) -> str:
         metrics = [
             ("营业总收入同比增长率", "营业收入增速"),
             ("净利润同比增长率", "净利润增速"),
-            ("销售毛利率", "毛利率"),
+            ("销售净利率", "毛利率"),
             ("净资产收益率", "ROE"),
             ("每股经营现金流", "每股经营现金流"),
         ]
@@ -869,7 +870,7 @@ async def _generate_module8_strategies(stock_name: str, data: dict) -> str:
     fs = data.get("financial_summary")
     if fs is not None and not fs.empty:
         latest = fs.iloc[-1]
-        for col in ["营业总收入", "净利润", "销售毛利率", "净资产收益率", "营业总收入同比增长率", "净利润同比增长率"]:
+        for col in ["营业总收入", "净利润", "销售净利率", "净资产收益率", "营业总收入同比增长率", "净利润同比增长率"]:
             v = latest.get(col, "")
             if v:
                 context_parts.append(f"{col}：{v}")
@@ -908,7 +909,64 @@ async def _generate_module8_strategies(stock_name: str, data: dict) -> str:
         text = "投资策略分析暂时无法生成。"
 
     disclaimer = '<div class="trading-disclaimer">以上策略分析基于历史数据和模型，不构成任何投资建议。市场有风险，请结合自身情况独立判断。</div>'
-    return module_html(8, f'{_md(text)}\n{disclaimer}')
+    form_html = _mixed_strategy_form_html(stock_name)
+    return module_html(8, f'{_md(text)}\n{disclaimer}\n{form_html}')
+
+
+def _mixed_strategy_form_html(stock_name: str) -> str:
+    """返回自定义混合策略表单HTML（不经过markdown渲染）。"""
+    return f'''
+<div id="custom-strategy-form-container" style="margin-top:24px;padding:24px;background:#F5F0E8;border-radius:12px;border:1px solid var(--border);">
+  <h4 style="font-family:var(--font-serif);margin-bottom:4px;font-size:16px;">自定义你的混合策略</h4>
+  <p style="font-size:13px;color:var(--text-secondary);margin-bottom:20px;">填写以下信息，AI会基于当前分析数据为你生成专属混合策略方案</p>
+
+  <div id="strategy-accounts">
+    <div class="account-row" data-index="0" style="background:#fff;border-radius:10px;padding:16px;margin-bottom:12px;border:1px solid var(--border);">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+        <span style="font-weight:600;font-size:14px;">账户 1</span>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px 12px;">
+        <div><label style="font-size:12px;color:var(--text-secondary);">账户名称</label><input type="text" class="form-input" data-field="name" placeholder="如：短线账户" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:14px;margin-top:4px;"></div>
+        <div><label style="font-size:12px;color:var(--text-secondary);">策略类型</label><select class="form-input" data-field="type" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:14px;margin-top:4px;"><option value="">请选择</option><option value="超短线(1-3天)">超短线（1-3天）</option><option value="短线(1-4周)">短线（1-4周）</option><option value="中线(1-6个月)">中线（1-6个月）</option><option value="长线(1-3年)">长线（1-3年）</option></select></div>
+        <div><label style="font-size:12px;color:var(--text-secondary);">资金占比(%)</label><input type="number" class="form-input" data-field="allocation" placeholder="如：30" min="1" max="100" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:14px;margin-top:4px;"></div>
+        <div><label style="font-size:12px;color:var(--text-secondary);">风险偏好</label><select class="form-input" data-field="risk" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:14px;margin-top:4px;"><option value="稳健">稳健</option><option value="激进">激进</option><option value="保守">保守</option></select></div>
+        <div><label style="font-size:12px;color:var(--text-secondary);">入场依据</label><select class="form-input" data-field="entry" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:14px;margin-top:4px;"><option value="技术面">技术面</option><option value="估值分位">估值分位</option><option value="技术面+估值">技术面+估值</option><option value="事件驱动">事件驱动</option></select></div>
+        <div><label style="font-size:12px;color:var(--text-secondary);">止盈方式</label><select class="form-input" data-field="take_profit" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:14px;margin-top:4px;"><option value="固定价位">固定价位</option><option value="移动止盈">移动止盈</option><option value="分批止盈">分批止盈</option><option value="条件止盈">条件止盈</option></select></div>
+        <div><label style="font-size:12px;color:var(--text-secondary);">止损纪律</label><select class="form-input" data-field="stop_loss" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:14px;margin-top:4px;"><option value="固定价位">固定价位</option><option value="百分比止损">百分比止损</option><option value="条件止损">条件止损</option><option value="不止损">不止损</option></select></div>
+        <div><label style="font-size:12px;color:var(--text-secondary);">特别关注（选填）</label><input type="text" class="form-input" data-field="notes" placeholder="如：不想每天盯盘" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:14px;margin-top:4px;"></div>
+      </div>
+    </div>
+  </div>
+
+  <button type="button" onclick="addAccountRow()" style="margin:8px 0 16px;padding:8px 16px;border:1px dashed var(--accent-gold);border-radius:8px;background:transparent;color:var(--accent-gold);cursor:pointer;font-size:13px;">+ 添加账户</button>
+
+  <div style="background:#fff;border-radius:10px;padding:16px;margin-bottom:16px;border:1px solid var(--border);">
+    <div style="font-weight:600;font-size:14px;margin-bottom:12px;">账户间协同规则</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px 12px;">
+      <div><label style="font-size:12px;color:var(--text-secondary);">账户间关系</label><select id="coord-independence" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:14px;margin-top:4px;"><option value="完全独立">完全独立（各做各的）</option><option value="部分联动">部分联动（有协同规则）</option><option value="全局协调">全局协调（统一调度）</option></select></div>
+      <div><label style="font-size:12px;color:var(--text-secondary);">总仓位上限(%)</label><input id="coord-total-limit" type="number" placeholder="如：60" value="60" min="1" max="100" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:14px;margin-top:4px;"></div>
+      <div><label style="font-size:12px;color:var(--text-secondary);">盈利是否流转</label><select id="coord-profit-flow" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:14px;margin-top:4px;"><option value="否">否（各归各）</option><option value="是">是（短线盈利转入长线）</option></select></div>
+      <div><label style="font-size:12px;color:var(--text-secondary);">总止损线(%)</label><input id="coord-total-stop" type="number" placeholder="如：10" min="1" max="100" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:14px;margin-top:4px;"></div>
+      <div><label style="font-size:12px;color:var(--text-secondary);">优先级</label><select id="coord-priority" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:14px;margin-top:4px;"><option value="长线优先">长线账户优先</option><option value="短线优先">短线账户优先</option><option value="平均分配">平均分配</option></select></div>
+      <div><label style="font-size:12px;color:var(--text-secondary);">亏损是否互补</label><select id="coord-loss" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:14px;margin-top:4px;"><option value="否">否（各亏各的）</option><option value="是">是（可调资金互补）</option></select></div>
+    </div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px 12px;margin-bottom:16px;">
+    <div><label style="font-size:12px;color:var(--text-secondary);">总投资金额（选填）</label><input id="total-amount" type="text" placeholder="如：50万" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:14px;margin-top:4px;"></div>
+    <div><label style="font-size:12px;color:var(--text-secondary);">其他补充（选填）</label><input id="extra-notes" type="text" placeholder="如：这笔钱半年后要用" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:14px;margin-top:4px;"></div>
+  </div>
+
+  <button type="button" onclick="submitCustomStrategy()" id="submit-strategy-btn" style="background:var(--accent-green);color:#fff;padding:12px 32px;border-radius:8px;font-size:15px;font-weight:600;border:none;cursor:pointer;width:100%;transition:opacity 0.2s;">生成我的专属混合策略方案</button>
+  <div id="strategy-result" style="margin-top:20px;"></div>
+  <div id="strategy-loading" style="display:none;margin-top:20px;text-align:center;">
+    <div style="display:inline-block;width:20px;height:20px;border:2px solid var(--border);border-top-color:var(--accent-gold);border-radius:50%;animation:spin 0.8s linear infinite;"></div>
+    <p style="font-size:13px;color:var(--text-secondary);margin-top:8px;">AI正在根据你的策略配置生成方案...</p>
+  </div>
+</div>
+
+<script>var MIXED_STRATEGY_STOCK = "{stock_name}";</script>
+<script src="/static/js/mixed-strategy-form.js"></script>'''
 
 
 def _generate_module9_reports(stock_name: str, symbol: str, data: dict) -> str:
@@ -947,7 +1005,7 @@ async def _generate_module10_trade_ref(stock_name: str, data: dict) -> str:
     fs = data.get("financial_summary")
     if fs is not None and not fs.empty:
         latest = fs.iloc[-1]
-        for col in ["营业总收入", "净利润", "销售毛利率", "净资产收益率", "营业总收入同比增长率"]:
+        for col in ["营业总收入", "净利润", "销售净利率", "净资产收益率", "营业总收入同比增长率"]:
             v = latest.get(col, "")
             if v:
                 context_parts.append(f"{col}：{v}")
@@ -1001,6 +1059,77 @@ async def _generate_module11_questions(stock_name: str, context: str) -> str:
         questions = [f"<li>{text}</li>"]
 
     return module_html(11, f'<ul class="questions-list">{"".join(questions)}</ul>')
+
+
+async def generate_custom_mixed_strategy(symbol: str, user_config: str) -> AsyncGenerator[str, None]:
+    """根据用户自定义策略配置，流式生成混合策略分析。"""
+    results = await asyncio.to_thread(search_stock, symbol)
+    if not results:
+        yield _error_html("未找到该股票，请检查代码或名称")
+        return
+
+    stock_name = results[0]["name"]
+    stock_code = results[0]["code"]
+    market = results[0].get("market", "A")
+
+    data = await _fetch_all_data(stock_code, market)
+
+    quote = data.get("quote") or {}
+    current_price = 0
+    try:
+        current_price = float(quote.get("最新价", 0))
+    except (ValueError, TypeError):
+        pass
+
+    context_parts = [f"股票名称：{stock_name}", f"当前股价：¥{current_price}"]
+
+    fs = data.get("financial_summary")
+    if fs is not None and not fs.empty:
+        latest = fs.iloc[-1]
+        for col in ["营业总收入", "净利润", "销售净利率", "净资产收益率", "营业总收入同比增长率", "净利润同比增长率"]:
+            v = latest.get(col, "")
+            if v:
+                context_parts.append(f"{col}：{v}")
+
+    kline = data.get("kline_90d")
+    if kline is not None and not kline.empty:
+        highs = kline["high"].tolist()
+        lows = kline["low"].tolist()
+        closes = kline["close"].tolist()
+        context_parts.append(f"90日最高价：{max(highs)}")
+        context_parts.append(f"90日最低价：{min(lows)}")
+        context_parts.append(f"90日涨跌幅：{(closes[-1] - closes[0]) / closes[0] * 100:+.1f}%")
+
+    val_data = data.get("valuation") or {}
+    for key, display in [("pe", "PE(TTM)"), ("pb", "PB")]:
+        df = val_data.get(key)
+        if df is not None and not df.empty:
+            current_val = float(df["value"].iloc[-1])
+            series = df["value"]
+            percentile = (series < current_val).sum() / len(series) * 100
+            context_parts.append(f"{display}：{current_val:.1f}，历史分位{percentile:.0f}%")
+
+    context_parts.append("DCF估值参考：详见财务体检模块")
+
+    info = data.get("info") or {}
+    if info.get("行业"):
+        context_parts.append(f"所属行业：{info['行业']}")
+    if info.get("主营业务"):
+        context_parts.append(f"主营业务：{info['主营业务']}")
+
+    full_context = "\n".join(context_parts)
+
+    try:
+        text = await asyncio.to_thread(chat, custom_mixed_strategy_prompt(stock_name, full_context, user_config))
+    except Exception:
+        text = "自定义混合策略分析暂时无法生成。"
+
+    header = f'<section class="module" id="module-custom-strategy">\n  <div class="module-number">CUSTOM ANALYSIS</div>\n  <h2>你的专属混合策略方案</h2>\n  <div class="module-content md-content">'
+    escaped = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    yield header
+    yield f'<div class="md-text">{escaped}</div>'
+    yield '<div class="trading-disclaimer">以上策略分析基于你提供的配置和历史数据，不构成任何投资建议。市场有风险，请结合自身情况独立判断。</div>'
+    yield '</div>\n</section>'
 
 
 def _error_html(message: str) -> str:

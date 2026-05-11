@@ -12,7 +12,7 @@ import os
 
 from app.data.stock_search import search_stock
 from app.data.portfolio_data import get_batch_quotes, get_stock_profiles
-from app.report.generator import generate_report
+from app.report.generator import generate_report, generate_custom_mixed_strategy
 from app.ai.vision_client import parse_portfolio_screenshot
 from app.models.history import init_db, save_report, list_reports, get_report, delete_report
 from app.models.letter import (
@@ -393,3 +393,18 @@ async def api_diagnosis_delete(diagnosis_id: int):
     if not deleted:
         return JSONResponse({"error": "诊断记录不存在"}, status_code=404)
     return JSONResponse({"ok": True})
+
+
+@app.post("/api/mixed-strategy/{symbol}")
+async def api_mixed_strategy(symbol: str, request: Request):
+    """根据用户自定义策略配置，流式生成混合策略分析。"""
+    body = await request.json()
+    user_config = body.get("config", "")
+    if not user_config:
+        return JSONResponse({"error": "请提供策略配置信息"}, status_code=400)
+
+    async def stream():
+        async for chunk in generate_custom_mixed_strategy(symbol, user_config):
+            yield chunk
+
+    return StreamingResponse(stream(), media_type="text/html; charset=utf-8")
