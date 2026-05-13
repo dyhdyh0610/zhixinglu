@@ -33,6 +33,10 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Clear proxy environment variables to prevent akshare requests from being blocked
+    for var in ["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"]:
+        os.environ.pop(var, None)
+    os.environ["no_proxy"] = "*"
     init_db()
     init_letter_db()
     init_diagnosis_db()
@@ -60,9 +64,11 @@ async def api_search(q: str = ""):
 @app.get("/api/report/{symbol}")
 async def api_report(symbol: str):
     results = await asyncio.to_thread(search_stock, symbol)
-    stock_code = results[0]["code"] if results else symbol
-    stock_name = results[0]["name"] if results else symbol
-    market = results[0].get("market", "A") if results else "A"
+    if not results:
+        return JSONResponse({"error": "未找到该股票"}, status_code=404)
+    stock_code = results[0]["code"]
+    stock_name = results[0]["name"]
+    market = results[0].get("market", "A")
 
     async def stream():
         chunks = []

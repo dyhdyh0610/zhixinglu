@@ -1,34 +1,44 @@
+import time
 import akshare as ak
 import pandas as pd
 import logging
 
 logger = logging.getLogger(__name__)
 
+_STOCK_LIST_TTL = 86400  # 24 hours
+
 _stock_list_cache: pd.DataFrame | None = None
+_stock_list_cache_time: float = 0
 _hk_stock_list_cache: pd.DataFrame | None = None
+_hk_list_cache_time: float = 0
 _hk_list_load_failed: bool = False
 
 
 def _get_stock_list() -> pd.DataFrame:
-    global _stock_list_cache
-    if _stock_list_cache is None:
+    global _stock_list_cache, _stock_list_cache_time
+    now = time.time()
+    if _stock_list_cache is None or (now - _stock_list_cache_time) > _STOCK_LIST_TTL:
         _stock_list_cache = ak.stock_info_a_code_name()
+        _stock_list_cache_time = now
     return _stock_list_cache
 
 
 def _get_hk_stock_list() -> pd.DataFrame:
-    global _hk_stock_list_cache, _hk_list_load_failed
-    if _hk_stock_list_cache is not None and not _hk_stock_list_cache.empty:
+    global _hk_stock_list_cache, _hk_list_cache_time, _hk_list_load_failed
+    now = time.time()
+    if _hk_stock_list_cache is not None and not _hk_stock_list_cache.empty and (now - _hk_list_cache_time) <= _STOCK_LIST_TTL:
         return _hk_stock_list_cache
-    if _hk_stock_list_cache is not None and not _hk_list_load_failed:
+    if _hk_stock_list_cache is not None and _hk_list_load_failed and (now - _hk_list_cache_time) <= _STOCK_LIST_TTL:
         return _hk_stock_list_cache
     try:
         df = ak.stock_hk_spot_em()
         _hk_stock_list_cache = df[["代码", "名称"]].rename(columns={"代码": "code", "名称": "name"})
+        _hk_list_cache_time = now
         _hk_list_load_failed = False
     except Exception:
         logger.exception("Failed to load HK stock list")
         _hk_list_load_failed = True
+        _hk_list_cache_time = now
         if _hk_stock_list_cache is None:
             _hk_stock_list_cache = pd.DataFrame(columns=["code", "name"])
     return _hk_stock_list_cache

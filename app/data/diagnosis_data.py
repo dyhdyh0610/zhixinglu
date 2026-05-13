@@ -76,8 +76,10 @@ def _get_industry_data(stock_code: str) -> dict | None:
         stock_info = ak.stock_individual_info_em(symbol=stock_code)
         industry = None
         for _, row in stock_info.iterrows():
-            if row.iloc[0] == "行业":
-                industry = row.iloc[1]
+            item = row.get("item")
+            value = row.get("value")
+            if item == "行业":
+                industry = value
                 break
         if not industry:
             return None

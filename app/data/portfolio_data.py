@@ -168,7 +168,10 @@ def _get_individual_info(symbol: str) -> dict:
         df = _retry(ak.stock_individual_info_em, symbol=symbol)
         info = {}
         for _, row in df.iterrows():
-            info[row["item"]] = row["value"]
+            try:
+                info[row["item"]] = row["value"]
+            except KeyError:
+                print(f"[portfolio_data] _get_individual_info: 列名不匹配，跳过 row={row.to_dict()}")
         data = {
             "name": str(info.get("股票简称", "")),
             "price": float(info.get("最新", 0) or 0),
@@ -177,7 +180,8 @@ def _get_individual_info(symbol: str) -> dict:
         }
         _individual_cache[symbol] = {"data": data, "ts": now}
         return data
-    except Exception:
+    except Exception as e:
+        print(f"[portfolio_data] _get_individual_info({symbol}) 异常: {e}")
         if symbol in _individual_cache:
             return _individual_cache[symbol]["data"]
         return {}
