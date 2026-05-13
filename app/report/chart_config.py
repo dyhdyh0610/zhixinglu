@@ -43,17 +43,49 @@ def line_chart(container_id: str, title: str, x_data: list, series_list: list[di
 
 
 def kline_chart(container_id: str, title: str, dates: list, kline_data: list,
-                volumes: list, events: list[dict] | None = None) -> str:
-    """K线图。kline_data: [[open, close, low, high], ...]"""
+                volumes: list, events: list[dict] | None = None, ma_data: dict | None = None) -> str:
+    """K线图。kline_data: [[open, close, low, high], ...]
+    ma_data: {"ma5": [...], "ma20": [...], "ma60": [...]} 可选均线数据。
+    """
     mark_points = []
     if events:
         for e in events:
             mark_points.append({"coord": [e["date"], e["price"]], "value": e["label"],
                                 "itemStyle": {"color": "#C9A961"}})
 
+    series = [
+        {
+            "type": "candlestick", "data": kline_data, "xAxisIndex": 0, "yAxisIndex": 0,
+            "itemStyle": {"color": "#D97757", "color0": "#7A9B6E", "borderColor": "#D97757", "borderColor0": "#7A9B6E"},
+            "markPoint": {"data": mark_points, "symbol": "pin", "symbolSize": 40, "label": {"fontSize": 9}} if mark_points else {}
+        },
+        {
+            "type": "bar", "data": volumes, "xAxisIndex": 1, "yAxisIndex": 1,
+            "itemStyle": {"color": "#C9A961", "opacity": 0.5}
+        }
+    ]
+
+    legend_data = ["K线", "成交量"]
+
+    if ma_data:
+        ma_styles = [
+            ("ma5", "MA5", "#F39C12"),
+            ("ma20", "MA20", "#9B59B6"),
+            ("ma60", "MA60", "#3498DB"),
+        ]
+        for key, name, color in ma_styles:
+            if key in ma_data and ma_data[key]:
+                series.append({
+                    "type": "line", "data": ma_data[key], "xAxisIndex": 0, "yAxisIndex": 0,
+                    "name": name, "smooth": True, "symbol": "none",
+                    "lineStyle": {"width": 1, "color": color}
+                })
+                legend_data.append(name)
+
     option = {
         "title": {"text": title, "left": "center", "textStyle": {"fontFamily": "'Source Serif Pro', 'Noto Serif SC', serif", "fontSize": 16, "color": "#2A2A2A"}},
         "tooltip": {"trigger": "axis", "axisPointer": {"type": "cross"}},
+        "legend": {"data": legend_data, "bottom": 0, "textStyle": {"fontSize": 11}},
         "grid": [
             {"left": "8%", "right": "5%", "top": "15%", "height": "55%"},
             {"left": "8%", "right": "5%", "top": "75%", "height": "15%"}
@@ -66,17 +98,7 @@ def kline_chart(container_id: str, title: str, dates: list, kline_data: list,
             {"type": "value", "gridIndex": 0, "scale": True},
             {"type": "value", "gridIndex": 1, "scale": True, "axisLabel": {"show": False}, "splitLine": {"show": False}}
         ],
-        "series": [
-            {
-                "type": "candlestick", "data": kline_data, "xAxisIndex": 0, "yAxisIndex": 0,
-                "itemStyle": {"color": "#D97757", "color0": "#7A9B6E", "borderColor": "#D97757", "borderColor0": "#7A9B6E"},
-                "markPoint": {"data": mark_points, "symbol": "pin", "symbolSize": 40, "label": {"fontSize": 9}} if mark_points else {}
-            },
-            {
-                "type": "bar", "data": volumes, "xAxisIndex": 1, "yAxisIndex": 1,
-                "itemStyle": {"color": "#C9A961", "opacity": 0.5}
-            }
-        ]
+        "series": series
     }
     return _chart_html(container_id, option, height="450px")
 
