@@ -10,6 +10,7 @@ from app.data.financial_data import (
 )
 from app.data.market_data import get_stock_kline, get_realtime_quote
 from app.data.valuation_data import get_valuation_history
+from app.data.industry_data import get_peer_companies, get_industry_median
 from app.data.news_data import get_stock_news, get_research_reports, get_stock_announcements, get_profit_forecast
 from app.ai.llm_client import chat, chat_with_search
 from app.ai.prompts import (
@@ -31,6 +32,16 @@ def _md(text: str) -> str:
     """将AI生成的文本包装为markdown待渲染容器。"""
     escaped = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
     return f'<div class="md-text">{escaped}</div>'
+
+
+def _format_peer_avg(pe_median, pb_median) -> str:
+    """格式化行业对比数据。有中位数时返回格式化字符串，没有时返回'暂无'。"""
+    parts = []
+    if pe_median is not None:
+        parts.append(f"行业PE中位数: {pe_median:.1f}")
+    if pb_median is not None:
+        parts.append(f"行业PB中位数: {pb_median:.1f}")
+    return "，".join(parts) if parts else "暂无"
 
 
 async def generate_report(symbol: str) -> AsyncGenerator[str, None]:
@@ -91,6 +102,28 @@ async def _fetch_all_data(symbol: str, market: str = "A") -> dict:
         data[key] = None if isinstance(result, Exception) else result
     data["_symbol"] = symbol
     data["_market"] = market
+
+    # 行业对比数据：仅A股，且与其他任务并行获取
+    if market == "A":
+        try:
+            industry_tasks = {
+                "peers_info": asyncio.to_thread(get_peer_companies, symbol),
+                "industry_pe_median": asyncio.to_thread(get_industry_median, symbol, "pe"),
+                "industry_pb_median": asyncio.to_thread(get_industry_median, symbol, "pb"),
+            }
+            industry_results = await asyncio.gather(*industry_tasks.values(), return_exceptions=True)
+            for key, result in zip(industry_tasks.keys(), industry_results):
+                data[key] = "" if isinstance(result, Exception) else result
+        except Exception:
+            print(f"[WARNING] Industry data fetch failed for {symbol}", file=sys.stderr)
+            data["peers_info"] = ""
+            data["industry_pe_median"] = None
+            data["industry_pb_median"] = None
+    else:
+        data["peers_info"] = ""
+        data["industry_pe_median"] = None
+        data["industry_pb_median"] = None
+
     return data
 
 
@@ -182,8 +215,10 @@ async def _generate_module2(stock_name: str, data: dict) -> str:
     if fs is not None and not fs.empty:
         ind_str = fs.tail(5)[["报告期", "营业总收入", "净利润", "销售净利率", "净资产收益率"]].to_string()
 
+    peers_info = data.get("peers_info", "")
+
     try:
-        text = await asyncio.to_thread(chat, module2_prompt(stock_name, profit_str, ind_str, ""))
+        text = await asyncio.to_thread(chat, module2_prompt(stock_name, profit_str, ind_str, peers_info))
     except Exception:
         text = "商业模式分析暂时无法生成。"
     return module_html(2, _md(text))
@@ -251,9 +286,11 @@ async def _generate_module3(stock_name: str, data: dict) -> str:
             trend_str = " → ".join([f"{v}" for v in values])
             unit = "%" if "率" in col or "增长" in col else "元"
 
+            peer_avg = _format_peer_avg(data.get("industry_pe_median"), data.get("industry_pb_median"))
+
             try:
                 insight = await asyncio.to_thread(
-                    chat, module3_indicator_prompt(stock_name, display_name, f"{current}{unit}", trend_str, "暂无")
+                    chat, module3_indicator_prompt(stock_name, display_name, f"{current}{unit}", trend_str, peer_avg)
                 )
             except Exception:
                 insight = ""
@@ -613,12 +650,14 @@ async def _generate_module4(stock_name: str, data: dict) -> str:
         hist_max = float(series.max())
         percentile = (series < current).sum() / len(series) * 100
 
+        peer_avg = _format_peer_avg(data.get("industry_pe_median"), data.get("industry_pb_median"))
+
         try:
             insight = await asyncio.to_thread(
                 chat, module4_prompt(
                     stock_name, display, f"{current:.1f}",
                     f"[{hist_min:.1f}, {hist_max:.1f}]",
-                    f"{percentile:.0f}%分位", "暂无"
+                    f"{percentile:.0f}%分位", peer_avg
                 )
             )
         except Exception:
