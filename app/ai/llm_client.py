@@ -33,18 +33,9 @@ def chat(messages: list[dict], temperature: float = 0.7) -> str:
 
 
 def chat_with_search(messages: list[dict], temperature: float = 0.7) -> str:
-    """同步调用LLM并启用web search工具，返回完整文本。"""
-    client = get_client()
-    try:
-        resp = client.chat.completions.create(
-            model=LLM_MODEL,
-            messages=messages,
-            temperature=temperature,
-            tools=[{"type": "web_search_20250305"}],
-        )
-        return resp.choices[0].message.content or ""
-    except Exception:
-        return chat(messages, temperature)
+    """同步调用LLM。DashScope 的 web_search 工具返回 tool_calls 且无 content，
+    且不带工具的调用容易超时，因此直接走普通 chat，基于传入的完整数据生成分析。"""
+    return chat(messages, temperature)
 
 
 def chat_stream(messages: list[dict], temperature: float = 0.7):
