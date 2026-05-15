@@ -116,3 +116,7 @@ a { color: var(--accent-green); text-decoration: none; }
   margin-top: 4px;
   display: none;
 }
+
+/* 删除按钮：默认隐藏，hover 时显示 */
+.delete-btn:hover { opacity: 1 !important; }
+.card:hover .delete-btn { opacity: 0.4; }

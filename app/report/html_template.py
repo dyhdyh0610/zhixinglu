@@ -548,11 +548,11 @@ body {{
 </div>
 <script>
 (function(){{
-  var total=11,loaded=0;
+  var total=10,loaded=0;
   var bar=document.getElementById('loading-bar-inner');
   var txt=document.getElementById('loading-text');
   var wrap=document.getElementById('report-loading');
-  var labels={{1:'了解公司业务',2:'分析商业模式',3:'财务体检',4:'估值分析',5:'整理最新研报',6:'梳理市场观点',7:'分析股价走势',8:'生成投资策略与混合策略',9:'整理财报',10:'生成交易参考',11:'生成延展问题'}};
+  var labels={{1:'了解公司业务',2:'分析商业模式',3:'财务体检',4:'估值分析',5:'整理最新研报',6:'梳理市场观点',7:'分析股价走势',8:'生成投资策略与混合策略',9:'整理财报',10:'生成操作建议与交易参考',11:'生成延展问题'}};
   var ob=new MutationObserver(function(muts){{
     muts.forEach(function(m){{
       m.addedNodes.forEach(function(n){{
@@ -594,7 +594,6 @@ body {{
 
 
 MODULE_TITLES = {
-    0: "操作建议",
     1: "这家公司在做什么",
     2: "它怎么赚钱",
     3: "财务体检",
@@ -604,7 +603,7 @@ MODULE_TITLES = {
     7: "最近股价走势分析",
     8: "投资策略与混合策略",
     9: "财报附录",
-    10: "交易参考",
+    10: "操作建议与交易参考",
     11: "你还想知道什么",
 }
 

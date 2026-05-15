@@ -1,8 +1,12 @@
 const Charts = {
   profiles: null,
   colors: ['#2C3E2D', '#4A6B4E', '#7A9B6E', '#C9A961', '#E8A87C', '#8B7355', '#2A3B4D', '#6B8FA3'],
+  _charts: [],
 
   async render(container, quotes) {
+    // 销毁旧图表实例
+    this._charts.forEach(c => { try { c.dispose(); } catch(e) {} });
+    this._charts = [];
     const held = Store.getHeldStocks();
     if (!held.length) {
       container.innerHTML = '<div class="empty-state"><p>添加持仓后即可查看组合穿透分析</p></div>';

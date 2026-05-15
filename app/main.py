@@ -409,8 +409,20 @@ async def api_mixed_strategy(symbol: str, request: Request):
     if not user_config:
         return JSONResponse({"error": "请提供策略配置信息"}, status_code=400)
 
+    results = await asyncio.to_thread(search_stock, symbol)
+    stock_code = results[0]["code"] if results else symbol
+    stock_name = results[0]["name"] if results else symbol
+    market = results[0].get("market", "A") if results else "A"
+
     async def stream():
+        chunks = []
         async for chunk in generate_custom_mixed_strategy(symbol, user_config):
+            chunks.append(chunk)
             yield chunk
+        full_html = "".join(chunks)
+        try:
+            await asyncio.to_thread(save_report, stock_code, stock_name, full_html, market)
+        except Exception:
+            logger.exception("Failed to save mixed strategy report to history")
 
     return StreamingResponse(stream(), media_type="text/html; charset=utf-8")

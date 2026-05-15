@@ -53,10 +53,31 @@ const ImportScreenshot = {
     }
 
     overlay.querySelector('#import-upload').style.display = 'none';
+
+    // 前端压缩 + 预览
+    const previewEl = overlay.querySelector('#import-preview') || (() => {
+      const el = document.createElement('div');
+      el.id = 'import-preview';
+      el.style.cssText = 'text-align:center;padding:12px 0;';
+      overlay.querySelector('.import-modal').insertBefore(el, overlay.querySelector('#import-loading'));
+      return el;
+    })();
+
+    let uploadFile = file;
+    try {
+      const compressed = await this._compressImage(file);
+      if (compressed && compressed.size < file.size) {
+        uploadFile = compressed;
+        previewEl.innerHTML = `<p class="text-secondary text-sm">已压缩：${(file.size/1024/1024).toFixed(1)}MB → ${(compressed.size/1024/1024).toFixed(1)}MB</p>`;
+      }
+    } catch (e) {
+      // 压缩失败，使用原文件
+    }
+
     overlay.querySelector('#import-loading').style.display = 'block';
 
     const formData = new FormData();
-    formData.append('file', file);
+    formData.append('file', uploadFile);
 
     try {
       const resp = await fetch('/api/parse-screenshot', { method: 'POST', body: formData });
@@ -224,6 +245,39 @@ const ImportScreenshot = {
             onclick="this.closest('.modal-overlay').remove();Portfolio.render();">确定</button>
         </div>`;
     }
+  },
+
+  _compressImage(file) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      const reader = new FileReader();
+      reader.onload = () => {
+        img.src = reader.result;
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+
+      img.onload = () => {
+        const maxW = 1920;
+        let w = img.width, h = img.height;
+        if (w > maxW) { h = Math.round(h * maxW / w); w = maxW; }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, w, h);
+
+        canvas.toBlob(blob => {
+          if (blob) {
+            resolve(new File([blob], file.name, { type: 'image/jpeg', lastModified: Date.now() }));
+          } else {
+            reject(new Error('Canvas toBlob failed'));
+          }
+        }, 'image/jpeg', 0.7);
+      };
+      img.onerror = reject;
+    });
   },
 
   _stocks: null,

@@ -59,9 +59,8 @@ const Mailbox = {
                 ${retPct ? `<span>·</span><span class="${retCls}">${retPct}</span>` : ''}
               </div>
             </div>
-            <button onclick="event.stopPropagation();Mailbox.deleteLetter(${l.id})" title="删除"
-              style="border:none;background:none;cursor:pointer;padding:6px;opacity:0.3;transition:opacity 0.2s;margin-left:8px;"
-              onmouseover="this.style.opacity='0.8'" onmouseout="this.style.opacity='0.3'">
+            <button onclick="event.stopPropagation();Mailbox.deleteLetter(${l.id})" title="删除" class="delete-btn"
+              style="border:none;background:none;cursor:pointer;padding:6px;opacity:0;transition:opacity 0.15s;margin-left:8px;">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#D97757" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
             </button>
           </div>`;

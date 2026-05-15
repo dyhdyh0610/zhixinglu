@@ -19,7 +19,7 @@ from app.ai.prompts import (
     module4_prompt, module5_research_prompt, module5_prompt,
     module5_forecast_prompt,
     module6_prompt, module8_prompt,
-    module_trade_ref_prompt, module0_prompt,
+    module_trade_ref_prompt,
     module8_strategies_prompt,
     custom_mixed_strategy_prompt,
 )
@@ -63,7 +63,6 @@ async def generate_report(symbol: str) -> AsyncGenerator[str, None]:
 
     data = await _fetch_all_data(stock_code, market)
 
-    yield await _generate_module0_trade_advice(stock_name, data)
     yield await _generate_module1(stock_name, data)
     yield await _generate_module2(stock_name, data)
     yield await _generate_module3(stock_name, data)
@@ -139,140 +138,6 @@ def _brief_financials(data: dict) -> str:
         if v:
             parts.append(f"{col}:{v}")
     return "，".join(parts) if parts else "暂无"
-
-
-async def _generate_module0_trade_advice(stock_name: str, data: dict) -> str:
-    """模块0：投资建议 — 直接给操作结论，放最前面。"""
-    quote = data.get("quote") or {}
-    current_price = 0
-    try:
-        current_price = float(quote.get("最新价", 0))
-    except (ValueError, TypeError):
-        pass
-
-    context_parts = [f"股票名称：{stock_name}", f"当前股价：¥{current_price}"]
-
-    fs = data.get("financial_summary")
-    if fs is not None and not fs.empty:
-        latest = fs.iloc[-1]
-        for col in ["营业总收入", "净利润", "销售净利率", "净资产收益率", "营业总收入同比增长率"]:
-            v = latest.get(col, "")
-            if v:
-                context_parts.append(f"{col}：{v}")
-
-    kline = data.get("kline_90d")
-    if kline is not None and not kline.empty:
-        highs = kline["high"].tolist()
-        lows = kline["low"].tolist()
-        closes = kline["close"].tolist()
-        context_parts.append(f"90日最高价：{max(highs)}")
-        context_parts.append(f"90日最低价：{min(lows)}")
-        context_parts.append(f"90日涨跌幅：{(closes[-1] - closes[0]) / closes[0] * 100:+.1f}%")
-
-    val_data = data.get("valuation") or {}
-    for key, display in [("pe", "PE(TTM)"), ("pb", "PB")]:
-        df = val_data.get(key)
-        if df is not None and not df.empty:
-            current_val = float(df["value"].iloc[-1])
-            series = df["value"]
-            percentile = (series < current_val).sum() / len(series) * 100
-            context_parts.append(f"{display}：{current_val:.1f}，历史分位{percentile:.0f}%")
-
-    context_parts.append(f"DCF估值参考：详见财务体检模块")
-
-    # --- 增强：补充 DCF 估值结果 ---
-    dcf_context_parts = []
-    try:
-        cashflow = data.get("cashflow")
-        fs = data.get("financial_summary")
-        quote = data.get("quote") or {}
-        dcf_price = 0
-        try:
-            dcf_price = float(quote.get("最新价", 0))
-        except (ValueError, TypeError):
-            pass
-
-        dcf_total_shares = 0
-        if dcf_price > 0:
-            try:
-                import akshare as ak
-                mv_df = ak.stock_zh_valuation_baidu(symbol=data.get("_symbol", ""), indicator="总市值", period="近一年")
-                if mv_df is not None and not mv_df.empty:
-                    total_mv = float(mv_df.iloc[-1]["value"]) * 1e8
-                    if total_mv > 0:
-                        dcf_total_shares = total_mv / dcf_price
-            except Exception:
-                pass
-
-        dcf_operating_cf = []
-        dcf_capex_list = []
-        if cashflow is not None and not cashflow.empty:
-            for col in cashflow.columns:
-                if "经营活动产生的现金流量净额" in str(col):
-                    for v in cashflow[col].dropna().tolist():
-                        try:
-                            dcf_operating_cf.append(float(v))
-                        except (ValueError, TypeError):
-                            continue
-                    break
-            for col in cashflow.columns:
-                col_str = str(col)
-                if "购建固定资产" in col_str or "购买固定资产" in col_str:
-                    for v in cashflow[col].dropna().tolist():
-                        try:
-                            dcf_capex_list.append(abs(float(v)))
-                        except (ValueError, TypeError):
-                            continue
-                    break
-
-        dcf_fcf_list = []
-        if dcf_operating_cf:
-            if dcf_capex_list and len(dcf_capex_list) == len(dcf_operating_cf):
-                dcf_fcf_list = [ocf - cap for ocf, cap in zip(dcf_operating_cf, dcf_capex_list)]
-            else:
-                dcf_fcf_list = dcf_operating_cf
-        if dcf_fcf_list and len(dcf_fcf_list) > 5:
-            dcf_fcf_list = dcf_fcf_list[-5:]
-
-        dcf_growth_list = []
-        if fs is not None and not fs.empty and "营业总收入同比增长率" in fs.columns:
-            for v in fs.tail(5)["营业总收入同比增长率"].tolist():
-                n = _parse_number(v)
-                if n is not None:
-                    dcf_growth_list.append(n / 100)
-
-        if dcf_fcf_list and dcf_price > 0 and dcf_total_shares > 0:
-            dcf_result = calculate_dcf(dcf_fcf_list, dcf_growth_list, dcf_price, dcf_total_shares, net_debt=0.0)
-            if "error" not in dcf_result:
-                mid_val = dcf_result["中性"]["内在价值"]
-                opt_val = dcf_result["乐观"]["内在价值"]
-                pes_val = dcf_result["悲观"]["内在价值"]
-                wacc_pct = dcf_result["wacc_raw"] * 100
-                dcf_context_parts.append(f"DCF内在价值: ¥{mid_val}（乐观¥{opt_val}，悲观¥{pes_val}，WACC={wacc_pct:.1f}%）")
-    except Exception:
-        pass  # DCF 计算失败时跳过
-
-    # --- 增强：补充估值汇总 ---
-    try:
-        val_results = run_valuation_summary(data)
-        if val_results:
-            val_lines = []
-            for r in val_results:
-                val_lines.append(f"{r['method']}: ¥{r['fair_value']:.2f}")
-            context_parts.append("5种估值法结果: " + " | ".join(val_lines))
-    except Exception:
-        pass  # 估值计算失败时跳过
-
-    if dcf_context_parts:
-        context_parts.append(" ".join(dcf_context_parts))
-    full_context = "\n".join(context_parts)
-
-    try:
-        text = await asyncio.to_thread(chat_with_search, module0_prompt(stock_name, full_context))
-    except Exception:
-        text = "操作建议暂时无法生成。"
-
-    return module_html(0, f'{_md(text)}\n<div class="trading-disclaimer">以上为AI基于公开数据的分析参考，不构成投资建议。股市有风险，请结合自身情况独立判断。</div>')
 
 
 async def _generate_module1(stock_name: str, data: dict) -> str:
@@ -1172,8 +1037,80 @@ async def _generate_module10_trade_ref(stock_name: str, data: dict) -> str:
             percentile = (series < current_val).sum() / len(series) * 100
             context_parts.append(f"{display}：{current_val:.1f}，历史分位{percentile:.0f}%")
 
-    context_parts.append(f"DCF估值参考：详见财务体检模块")
+    # --- 增强：补充 DCF 估值结果 ---
+    dcf_context_parts = []
+    try:
+        cashflow = data.get("cashflow")
+        dcf_price = current_price
+        dcf_total_shares = 0
+        if dcf_price > 0:
+            try:
+                import akshare as ak
+                mv_df = ak.stock_zh_valuation_baidu(symbol=data.get("_symbol", ""), indicator="总市值", period="近一年")
+                if mv_df is not None and not mv_df.empty:
+                    total_mv = float(mv_df.iloc[-1]["value"]) * 1e8
+                    if total_mv > 0:
+                        dcf_total_shares = total_mv / dcf_price
+            except Exception:
+                pass
 
+        dcf_operating_cf = []
+        dcf_capex_list = []
+        if cashflow is not None and not cashflow.empty:
+            for col in cashflow.columns:
+                if "经营活动产生的现金流量净额" in str(col):
+                    for v in cashflow[col].dropna().tolist():
+                        try: dcf_operating_cf.append(float(v))
+                        except (ValueError, TypeError): continue
+                    break
+            for col in cashflow.columns:
+                col_str = str(col)
+                if "购建固定资产" in col_str or "购买固定资产" in col_str:
+                    for v in cashflow[col].dropna().tolist():
+                        try: dcf_capex_list.append(abs(float(v)))
+                        except (ValueError, TypeError): continue
+                    break
+
+        dcf_fcf_list = []
+        if dcf_operating_cf:
+            if dcf_capex_list and len(dcf_capex_list) == len(dcf_operating_cf):
+                dcf_fcf_list = [ocf - cap for ocf, cap in zip(dcf_operating_cf, dcf_capex_list)]
+            else:
+                dcf_fcf_list = dcf_operating_cf
+        if dcf_fcf_list and len(dcf_fcf_list) > 5:
+            dcf_fcf_list = dcf_fcf_list[-5:]
+
+        dcf_growth_list = []
+        if fs is not None and not fs.empty and "营业总收入同比增长率" in fs.columns:
+            for v in fs.tail(5)["营业总收入同比增长率"].tolist():
+                n = _parse_number(v)
+                if n is not None:
+                    dcf_growth_list.append(n / 100)
+
+        if dcf_fcf_list and dcf_price > 0 and dcf_total_shares > 0:
+            dcf_result = calculate_dcf(dcf_fcf_list, dcf_growth_list, dcf_price, dcf_total_shares, net_debt=0.0)
+            if "error" not in dcf_result:
+                mid_val = dcf_result["中性"]["内在价值"]
+                opt_val = dcf_result["乐观"]["内在价值"]
+                pes_val = dcf_result["悲观"]["内在价值"]
+                wacc_pct = dcf_result["wacc_raw"] * 100
+                dcf_context_parts.append(f"DCF内在价值: ¥{mid_val}（乐观¥{opt_val}，悲观¥{pes_val}，WACC={wacc_pct:.1f}%）")
+    except Exception:
+        pass
+
+    # --- 增强：补充估值汇总 ---
+    try:
+        val_results = run_valuation_summary(data)
+        if val_results:
+            val_lines = []
+            for r in val_results:
+                val_lines.append(f"{r['method']}: ¥{r['fair_value']:.2f}")
+            context_parts.append("5种估值法结果: " + " | ".join(val_lines))
+    except Exception:
+        pass
+
+    if dcf_context_parts:
+        context_parts.append(" ".join(dcf_context_parts))
     full_context = "\n".join(context_parts)
 
     try:
