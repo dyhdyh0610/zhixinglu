@@ -1,5 +1,21 @@
 # 更新日志
 
+## v1.3.0 (2026-05-18)
+
+### 新增
+- **网页端 LLM 配置面板**：首页标题旁新增齿轮图标，用户可在浏览器中直接配置 API 地址、API Key 和模型名称，无需编辑 .env 文件或重启服务
+- 新增 `user_settings` 表（SQLite），持久化存储用户自定义 LLM 配置
+- 新增 3 个 Settings API：`GET/PUT/DELETE /api/settings`，支持读取、保存、重置配置
+- 支持 5 种预设 API 地址快捷参考：OpenAI、阿里云 DashScope、DeepSeek、智谱、Ollama 本地
+
+### 优化
+- `llm_client.py` 重构：去除全局单例 client，改为 `_resolve_config()` 动态解析，支持运行时热切换配置
+- 配置优先级：网页用户设置 > .env 环境变量，保存后立即生效，无需重启服务
+- API Key 输入支持密码模式（显示/隐藏切换），GET 接口返回脱敏后的 key
+- 修改模型或 Base URL 时不改动 API Key，自动保留原值
+
+---
+
 ## v1.1.2 (2026-05-11)
 
 ### 新增

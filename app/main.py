@@ -15,6 +15,7 @@ from app.data.portfolio_data import get_batch_quotes, get_stock_profiles
 from app.report.generator import generate_report, generate_custom_mixed_strategy
 from app.ai.vision_client import parse_portfolio_screenshot
 from app.models.history import init_db, save_report, list_reports, get_report, delete_report
+from app.models.settings import init_settings_db, get_llm_config, get_all_settings, get_setting, set_setting, delete_setting
 from app.models.letter import (
     init_letter_db, save_letter, list_letters, get_letter,
     get_latest_letter, mark_read, delete_letter,
@@ -40,6 +41,16 @@ async def lifespan(app: FastAPI):
     init_db()
     init_letter_db()
     init_diagnosis_db()
+    init_settings_db()
+    # 启动时尝试从数据库加载用户设置
+    try:
+        from app.ai.llm_client import set_user_config
+        llm_cfg = get_llm_config()
+        if llm_cfg and llm_cfg["api_key"]:
+            set_user_config(llm_cfg)
+            print(f"[Settings] 已加载用户 LLM 配置: {llm_cfg.get('model', 'unknown')}")
+    except Exception:
+        pass
     yield
 
 
@@ -414,3 +425,79 @@ async def api_mixed_strategy(symbol: str, request: Request):
             yield chunk
 
     return StreamingResponse(stream(), media_type="text/html; charset=utf-8")
+
+
+# ── Settings endpoints ──
+
+
+@app.get("/api/settings")
+async def api_settings_get():
+    """获取当前 LLM 配置（优先返回用户设置，同时附带 env 配置状态）。"""
+    from app.config import LLM_BASE_URL, LLM_API_KEY, LLM_MODEL
+
+    user_cfg = get_llm_config()
+    return JSONResponse({
+        "source": "user" if user_cfg else "env",
+        "llm_base_url": (user_cfg or {}).get("base_url") or LLM_BASE_URL,
+        "llm_model": (user_cfg or {}).get("model") or LLM_MODEL,
+        "llm_api_key_masked": _mask_key((user_cfg or {}).get("api_key") or LLM_API_KEY),
+        "has_user_config": bool(user_cfg and user_cfg.get("api_key")),
+    })
+
+
+@app.put("/api/settings")
+async def api_settings_put(request: Request):
+    """保存用户 LLM 配置。"""
+    from app.ai.llm_client import set_user_config
+
+    body = await request.json()
+    base_url = (body.get("llm_base_url") or "").strip()
+    api_key = (body.get("llm_api_key") or "").strip()
+    model = (body.get("llm_model") or "").strip()
+    keep_old = body.get("_keep_old_api_key", False)
+
+    if not base_url:
+        base_url = "https://api.openai.com/v1"
+    if not model:
+        return JSONResponse({"error": "模型名称不能为空"}, status_code=400)
+
+    # 如果用户没有提供新 key 且要求保留旧 key，从数据库读取
+    if keep_old:
+        old_key = get_setting("llm_api_key")
+        if not old_key:
+            return JSONResponse({"error": "API Key 不能为空"}, status_code=400)
+        api_key = old_key
+
+    if not api_key:
+        return JSONResponse({"error": "API Key 不能为空"}, status_code=400)
+
+    set_setting("llm_base_url", base_url)
+    set_setting("llm_api_key", api_key)
+    set_setting("llm_model", model)
+
+    # 立即生效，更新运行时配置
+    set_user_config({
+        "base_url": base_url,
+        "api_key": api_key,
+        "model": model,
+    })
+
+    return JSONResponse({"ok": True, "model": model})
+
+
+@app.delete("/api/settings")
+async def api_settings_delete():
+    """清除用户配置，恢复使用环境变量。"""
+    from app.ai.llm_client import set_user_config
+
+    for key in ("llm_base_url", "llm_api_key", "llm_model"):
+        delete_setting(key)
+
+    set_user_config(None)
+    return JSONResponse({"ok": True, "source": "env"})
+
+
+def _mask_key(key: str) -> str:
+    if not key or len(key) < 8:
+        return "***"
+    return key[:4] + "..." + key[-4:]
